@@ -34,6 +34,29 @@ function findClaudeExecutable() {
   return 'claude';
 }
 
+class LineBuffer {
+  constructor(onLine) {
+    this.buffer = '';
+    this.onLine = onLine;
+  }
+
+  append(chunk) {
+    this.buffer += chunk;
+    const lines = this.buffer.split('\n');
+    this.buffer = lines.pop();
+    for (const line of lines) {
+      this.onLine(line);
+    }
+  }
+
+  flush() {
+    if (this.buffer) {
+      this.onLine(this.buffer);
+      this.buffer = '';
+    }
+  }
+}
+
 const server = http.createServer((req, res) => {
   // Add CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -77,10 +100,17 @@ const server = http.createServer((req, res) => {
         console.log(`🤖 [Claude Bridge] Spawning Claude Code in CWD: ${cwd || process.cwd()}`);
         console.log(`🤖 [Claude Bridge] Executable: ${executablePath}`);
 
-        // Spawn child process with stdin redirected to prevent block
+        // Spawn child process with stdin redirected to prevent block, using structured json stream verbose format
         const child = spawn(
           executablePath,
-          ['-p', prompt, '--print', '--dangerously-skip-permissions'],
+          [
+            '-p', prompt,
+            '--print',
+            '--output-format=stream-json',
+            '--include-hook-events',
+            '--dangerously-skip-permissions',
+            '--verbose'
+          ],
           {
             cwd: cwd || process.cwd(),
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -95,26 +125,133 @@ const server = http.createServer((req, res) => {
         // Track process exit to avoid multiple response writes
         let finished = false;
 
-        // Stream stdout (text content)
+        const sendSystemLog = (text) => {
+          if (finished) return;
+          res.write(`data: ${JSON.stringify({ text, type: 'system' })}\n\n`);
+        };
+
+        const sendText = (text) => {
+          if (finished) return;
+          res.write(`data: ${JSON.stringify({ text, type: 'text' })}\n\n`);
+        };
+
+        const processStdoutLine = (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+
+          // Attempt to parse line as structured JSON
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const json = JSON.parse(trimmed);
+
+              // 1. System/initialization events
+              if (json.type === 'system') {
+                if (json.subtype === 'init') {
+                  sendSystemLog(`⚙️ [初始化] 本地 Claude Code 工作目录: ${json.cwd || '默认'}\n`);
+                  return;
+                }
+                if (json.subtype === 'hook_started') {
+                  sendSystemLog(`⏱️ [钩子开始] ${json.hook_name || ''}\n`);
+                  return;
+                }
+                if (json.subtype === 'hook_response') {
+                  sendSystemLog(`✅ [钩子完成] ${json.hook_name || ''}\n`);
+                  return;
+                }
+              }
+
+              // 2. Assistant events (thinking, tool_use, final text stream)
+              if (json.type === 'assistant' && json.message && Array.isArray(json.message.content)) {
+                for (const content of json.message.content) {
+                  if (content.type === 'thinking') {
+                    if (content.thinking) {
+                      sendSystemLog(`💭 思考过程:\n${content.thinking}\n\n`);
+                    }
+                  } else if (content.type === 'tool_use') {
+                    const toolName = content.name;
+                    const toolInput = content.input && typeof content.input === 'object'
+                      ? JSON.stringify(content.input, null, 2)
+                      : (content.input || '');
+                    sendSystemLog(`🔧 调用工具: ${toolName}\n参数:\n${toolInput}\n\n`);
+                  } else if (content.type === 'text') {
+                    if (content.text) {
+                      sendText(content.text);
+                    }
+                  }
+                }
+                return;
+              }
+
+              // 3. User events (tool_result)
+              if (json.type === 'user' && json.message && Array.isArray(json.message.content)) {
+                for (const content of json.message.content) {
+                  if (content.type === 'tool_result') {
+                    const isError = content.is_error;
+                    const statusIcon = isError ? '❌' : '➡️';
+                    const statusText = isError ? '工具执行失败' : '工具执行结果';
+                    let displayContent = content.content || '';
+                    
+                    if (typeof displayContent === 'string' && displayContent.length > 500) {
+                      displayContent = displayContent.substring(0, 500) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                    }
+                    sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
+                  }
+                }
+                return;
+              }
+
+              // Other JSON messages we skip or log if relevant
+              return;
+            } catch (err) {
+              // JSON parse error, treat as raw text
+            }
+          }
+
+          // Fallback if not JSON
+          if (trimmed.includes('Warning: no stdin data received')) return;
+          sendText(line + '\n');
+        };
+
+        const processStderrLine = (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          if (trimmed.includes('Warning: no stdin data received')) return;
+
+          // Attempt to parse as JSON just in case
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              JSON.parse(trimmed);
+              processStdoutLine(line);
+              return;
+            } catch (err) {}
+          }
+
+          sendSystemLog(line + '\n');
+        };
+
+        const stdoutBuffer = new LineBuffer(processStdoutLine);
+        const stderrBuffer = new LineBuffer(processStderrLine);
+
+        // Stream stdout (parsed JSON line-by-line)
         child.stdout.on('data', (data) => {
           if (finished) return;
-          const text = data.toString();
-          res.write(`data: ${JSON.stringify({ text, type: 'text' })}\n\n`);
+          stdoutBuffer.append(data.toString());
         });
 
-        // Stream stderr (tool executions/progress logs)
+        // Stream stderr (progress and system logs)
         child.stderr.on('data', (data) => {
           if (finished) return;
-          const text = data.toString();
-          // Filter out generic interactive stdin warning to keep it clean
-          if (text.includes('Warning: no stdin data received')) return;
-          res.write(`data: ${JSON.stringify({ text, type: 'system' })}\n\n`);
+          stderrBuffer.append(data.toString());
         });
 
         // Process finished
         child.on('close', (code) => {
           if (finished) return;
           finished = true;
+          
+          stdoutBuffer.flush();
+          stderrBuffer.flush();
+
           console.log(`🤖 [Claude Bridge] Claude Code exited with code: ${code}`);
           res.write(`data: [DONE]\n\n`);
           res.end();

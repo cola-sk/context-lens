@@ -1,0 +1,26 @@
+- `[x]` Create `bridge/` directory and implement Node.js bridge server (`server.js` & `package.json`)
+- `[x]` Update Chrome Extension UI in `sidepanel.html` (add options and form inputs for CWD, Claude Path, Bridge URL)
+- `[x]` Update Chrome Extension logic in `sidepanel.js` (handle settings drawer form, appSettings defaults, visibility toggles, and streaming requests via local bridge)
+- `[x]` Add a script and instructions for running the bridge in `package.json`
+- `[x]` Implement robust model/provider settings cache and persistence mechanism (seamless tab draft caching, automatic fallback initialization merge)
+- `[x]` Verify the end-to-end integration and create walkthrough
+- `[x]` Fix the 3-second stdin block by adding `stdio: ['ignore', 'pipe', 'pipe']` to `spawn` call in `bridge/server.js`
+- `[x]` Design and implement specialized local agent prompt templates in `sidepanel/sidepanel.js` to direct Claude Code to find and edit source files
+- `[x]` Verify execution speed and correctness locally
+- `[x]` Expand context menu registration to contexts: `["all"]` in `background.js`
+- `[x]` Handle right-click element context fallback in `background.js` menu handler
+- `[x]` Track `'contextmenu'` events and implement `compileElementContext(element)` in `content.js`
+- `[x]` Update `'GET_RICH_CONTEXT'` message listener in `content.js` to support element fallback
+- `[x]` Enhance right-click element context capturing with proactive zero-latency caching, iframe support, and dynamic self-healing injection
+- `[x]` Verify right-click element context capture end-to-end
+- `[x]` Support real-time tool calling and thinking processes of the Claude Code local agent in progress log window
+  - `[x]` Update `bridge/server.js` with JSON streaming args and robust JSON-line stream parsing
+  - `[x]` Stop the old bridge task and start/verify the new bridge server locally
+  - `[x]` Perform manual end-to-end verification of tool usage rendering in side panel
+  - `[x]` Re-package the updated extension using `package-extension.sh`
+- `[/]` Support URL-based Auto-switching Rules for AI Providers & Workspaces
+  - `[ ]` Update `sidepanel.html` with rule matched banner and drawer tabs structure
+  - `[ ]` Update `sidepanel.css` with tabs, rule cards, switches, and form styling
+  - `[ ]` Update `sidepanel.js` with glob matching, active tab listener auto-switching, and CRUD/reordering panel manager
+  - `[ ]` Verify rules manager UI and switching end-to-end
+  - `[ ]` Re-package using `package-extension.sh`

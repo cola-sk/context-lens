@@ -135,74 +135,152 @@
           <h3>AI 服务端配置</h3>
           <button id="settings-close" class="close-btn">&times;</button>
         </div>
+        
+        <!-- Drawer Tabs -->
+        <div class="drawer-tabs">
+          <button id="tab-general" class="drawer-tab active" type="button">基本配置</button>
+          <button id="tab-rules" class="drawer-tab" type="button">自动切换规则</button>
+        </div>
+        
         <div class="drawer-body">
-          <form id="settings-form">
-            <!-- Provider Selector -->
-            <div class="form-group">
-              <label for="api-provider">AI 供应商 (Provider)</label>
-              <select id="api-provider">
-                <option value="gemini">Google Gemini 官方 API</option>
-                <option value="openai">OpenAI 官方 API</option>
-                <option value="claude">Anthropic Claude 官方 API</option>
-                <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
-                <option value="claude-agent">Claude Code 本地 Agent</option>
-              </select>
-            </div>
-
-            <!-- API Key (Hidden if local/custom with no auth) -->
-            <div class="form-group" id="key-group">
-              <label for="api-key" id="api-key-label">API 密钥 (API Key)</label>
-              <div class="input-password-wrapper">
-                <input type="password" id="api-key" placeholder="请输入您的 API 密钥">
-                <button type="button" id="toggle-key-visibility" class="visibility-btn">
-                  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                </button>
+          <!-- General Settings Tab Panel -->
+          <div id="panel-general" class="tab-panel">
+            <form id="settings-form">
+              <!-- Provider Selector -->
+              <div class="form-group">
+                <label for="api-provider">AI 供应商 (Provider)</label>
+                <select id="api-provider">
+                  <option value="gemini">Google Gemini 官方 API</option>
+                  <option value="openai">OpenAI 官方 API</option>
+                  <option value="claude">Anthropic Claude 官方 API</option>
+                  <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
+                  <option value="claude-agent">Claude Code 本地 Agent</option>
+                </select>
               </div>
-            </div>
 
-            <!-- Base URL (Only for Custom API and Claude Agent) -->
-            <div class="form-group hidden" id="url-group">
-              <label for="api-url" id="api-url-label">基准地址 / Bridge 地址</label>
-              <input type="text" id="api-url" placeholder="例如 http://localhost:3100">
-              <small class="form-tip" id="api-url-tip">兼容 OpenAI 规范的本地基准 URL，或 Local Claude Code Bridge 地址</small>
-            </div>
-
-            <!-- Workspace CWD (Only for Claude Agent) -->
-            <div class="form-group hidden" id="cwd-group">
-              <label for="api-cwd">本地项目绝对路径 (CWD)</label>
-              <input type="text" id="api-cwd" placeholder="例如 /Users/liuzhe.x/coding/ContextLens">
-              <small class="form-tip">Claude Agent 运行的本地工作区路径（默认使用 Bridge 服务的工作目录）</small>
-            </div>
-
-            <!-- Claude Executable Path (Only for Claude Agent - Optional) -->
-            <div class="form-group hidden" id="claude-path-group">
-              <label for="claude-path">Claude 执行文件路径 (可选/自动探测)</label>
-              <input type="text" id="claude-path" placeholder="留空以使用 Bridge 服务自动探测的路径">
-              <small class="form-tip">通常留空即可。如果需要强制指定本地 Claude CLI 的绝对路径可在此填写</small>
-            </div>
-
-            <!-- Model Selection dropdown (or manual input for Custom) -->
-            <div class="form-group" id="model-select-group">
-              <label for="api-model" id="model-label">模型标识符 (Model)</label>
-              <div id="model-input-container">
-                <!-- Dropdown or input field will be injected dynamically -->
-                <select id="api-model"></select>
+              <!-- API Key (Hidden if local/custom with no auth) -->
+              <div class="form-group" id="key-group">
+                <label for="api-key" id="api-key-label">API 密钥 (API Key)</label>
+                <div class="input-password-wrapper">
+                  <input type="password" id="api-key" placeholder="请输入您的 API 密钥">
+                  <button type="button" id="toggle-key-visibility" class="visibility-btn">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div class="form-group">
-              <label for="model-temperature">模型温度 / 创造力 (Temperature)</label>
-              <div class="range-wrapper">
-                <input type="range" id="model-temperature" min="0" max="2" step="0.1" value="0.7">
-                <span id="temp-val">0.7</span>
+              <!-- Base URL (Only for Custom API and Claude Agent) -->
+              <div class="form-group hidden" id="url-group">
+                <label for="api-url" id="api-url-label">基准地址 / Bridge 地址</label>
+                <input type="text" id="api-url" placeholder="例如 http://localhost:3100">
+                <small class="form-tip" id="api-url-tip">兼容 OpenAI 规范的本地基准 URL，或 Local Claude Code Bridge 地址</small>
               </div>
-            </div>
 
-            <button type="submit" class="submit-button glow-button">保存配置</button>
-          </form>
+              <!-- Workspace CWD (Only for Claude Agent) -->
+              <div class="form-group hidden" id="cwd-group">
+                <label for="api-cwd">本地项目绝对路径 (CWD)</label>
+                <input type="text" id="api-cwd" placeholder="例如 /Users/liuzhe.x/coding/ContextLens">
+                <small class="form-tip">Claude Agent 运行 the local working directory (defaults to Bridge directory if left empty)</small>
+              </div>
+
+              <!-- Claude Executable Path (Only for Claude Agent - Optional) -->
+              <div class="form-group hidden" id="claude-path-group">
+                <label for="claude-path">Claude 执行文件路径 (可选/自动探测)</label>
+                <input type="text" id="claude-path" placeholder="留空以使用 Bridge 服务自动探测的路径">
+                <small class="form-tip">通常留空即可。如果需要强制指定本地 Claude CLI 的绝对路径可在此填写</small>
+              </div>
+
+              <!-- Model Selection dropdown (or manual input for Custom) -->
+              <div class="form-group" id="model-select-group">
+                <label for="api-model" id="model-label">模型标识符 (Model)</label>
+                <div id="model-input-container">
+                  <!-- Dropdown or input field will be injected dynamically -->
+                  <select id="api-model"></select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="model-temperature">模型温度 / 创造力 (Temperature)</label>
+                <div class="range-wrapper">
+                  <input type="range" id="model-temperature" min="0" max="2" step="0.1" value="0.7">
+                  <span id="temp-val">0.7</span>
+                </div>
+              </div>
+
+              <button type="submit" class="submit-button glow-button">保存配置</button>
+            </form>
+          </div>
+
+          <!-- URL Switching Rules Tab Panel -->
+          <div id="panel-rules" class="tab-panel hidden">
+            <div class="rules-header">
+              <span class="rules-title">URL 自动切换规则</span>
+              <button id="add-rule-btn" class="add-rule-btn" type="button">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                添加新规则
+              </button>
+            </div>
+            
+            <div id="rules-list" class="rules-list">
+              <!-- Rules cards injected dynamically -->
+            </div>
+            
+            <!-- Rule Editor Form Panel -->
+            <div id="rule-editor" class="rule-editor-panel hidden">
+              <div class="editor-header">
+                <h4 id="editor-title">添加规则</h4>
+                <button id="close-editor-btn" class="close-editor-btn" type="button">&times;</button>
+              </div>
+              <form id="rule-editor-form">
+                <input type="hidden" id="edit-rule-index" value="">
+                
+                <div class="form-group">
+                  <label for="rule-name">规则名称</label>
+                  <input type="text" id="rule-name" placeholder="例如: Github Project A" required>
+                </div>
+                
+                <div class="form-group">
+                  <label for="rule-pattern">URL 匹配规则 (支持 * 通配符)</label>
+                  <input type="text" id="rule-pattern" placeholder="例如: *github.com/my-org/*" required>
+                  <small class="form-tip">支持 `*` 匹配任意字符。例如 `*github.com/*` 或 `*localhost:3000/*`</small>
+                </div>
+                
+                <div class="form-group">
+                  <label for="rule-provider">AI 供应商</label>
+                  <select id="rule-provider">
+                    <option value="gemini">Google Gemini 官方 API</option>
+                    <option value="openai">OpenAI 官方 API</option>
+                    <option value="claude">Anthropic Claude 官方 API</option>
+                    <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
+                    <option value="claude-agent">Claude Code 本地 Agent</option>
+                  </select>
+                </div>
+                
+                <div class="form-group" id="rule-model-group">
+                  <label for="rule-model">模型标识符</label>
+                  <select id="rule-model"></select>
+                </div>
+                
+                <div class="form-group" id="rule-cwd-group">
+                  <label for="rule-cwd">本地项目绝对路径 (CWD)</label>
+                  <input type="text" id="rule-cwd" placeholder="例如: /Users/liuzhe.x/coding/ContextLens">
+                  <small class="form-tip">只在选择 Claude Code 本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
+                </div>
+                
+                <div class="editor-actions">
+                  <button type="button" id="cancel-rule-btn" class="secondary-btn">取消</button>
+                  <button type="submit" class="submit-button glow-button">保存规则</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
           <div id="settings-status" class="settings-status"></div>
         </div>
       </div>
@@ -210,6 +288,10 @@
 
     <!-- Footer Input Bar -->
     <footer class="app-footer">
+      <div id="rule-match-banner" class="rule-match-banner hidden">
+        <span class="banner-icon">🎯</span>
+        <span id="matched-rule-text" class="banner-text">已按 URL 匹配规则: 未知</span>
+      </div>
       <div id="connection-status-pill" class="status-pill offline">
         <span class="pulse-indicator"></span>
         <span id="connected-model-name">未配置 AI 模型</span>
