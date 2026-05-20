@@ -15,7 +15,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "ask-contextlens",
     title: "Ask ContextLens",
-    contexts: ["selection"]
+    contexts: ["all"]
   });
 
   // Disable side panel globally by default
@@ -68,7 +68,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
     let selectionPayload = {
       tabId: tab.id,
-      text: info.selectionText,
+      text: info.selectionText || "",
       pageUrl: tab.url,
       pageTitle: tab.title,
       timestamp: Date.now(),
@@ -82,6 +82,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         if (response && response.success && response.contextData) {
           console.log("🔮 [ContextLens Background] Successfully retrieved rich DOM context for menu selection!");
           selectionPayload.contextData = response.contextData;
+          // Fallback selection text to the right-clicked element text if selectionText is empty
+          if (!selectionPayload.text && response.contextData.selectedText) {
+            selectionPayload.text = response.contextData.selectedText;
+          }
         }
       } catch (err) {
         console.log("🔮 [ContextLens Background] Content script not ready or no rich context cached. Using fallback.", err.message);

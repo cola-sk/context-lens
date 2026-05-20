@@ -3,6 +3,8 @@
 let floatBtn = null;
 let currentSelectionText = "";
 let currentSelectionContext = null; // Caches rich DOM context on selection mouseup
+let lastRightClickElement = null;
+let lastRightClickContext = null; // Caches rich DOM context on right click
 
 console.log("🔮 [ContextLens] Content script loaded successfully! Ready to capture text selections with DOM context.");
 
@@ -430,6 +432,52 @@ function showButtonAtSelection(selection) {
   }
 }
 
+// Compile a rich DOM context for an arbitrary element (used on right click)
+function compileElementContext(element) {
+  if (!element) return null;
+
+  try {
+    const range = document.createRange();
+    range.selectNode(element);
+
+    const selectedText = element.innerText ? element.innerText.trim() : (element.textContent ? element.textContent.trim() : "");
+    if (!selectedText) return null; // Ignore empty containers
+
+    const enclosingCode = findEnclosingCodeBlock(element);
+    const enclosingTable = findEnclosingTable(element);
+    const parentHeading = findPrecedingHeading(element);
+    const surrounding = getSurroundingText(range, 800);
+
+    let contentType = "text";
+    if (enclosingCode) contentType = "code";
+    else if (enclosingTable) contentType = "table";
+
+    const metaDesc = document.querySelector('meta[name="description"]')?.content || 
+                     document.querySelector('meta[property="og:description"]')?.content || "";
+
+    const semanticPath = buildSemanticPath(element);
+    const fullPageSimplified = getFullPageSimplifiedText(6000);
+
+    return {
+      contentType: contentType,
+      selectedText: selectedText,
+      surroundingBefore: surrounding.before,
+      surroundingAfter: surrounding.after,
+      parentHeading: parentHeading ? `${parentHeading.tag}: ${parentHeading.text}` : "",
+      codeBlock: enclosingCode,
+      tableBlock: enclosingTable,
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+      pageDescription: metaDesc.trim(),
+      semanticPath: semanticPath,
+      fullPageSimplifiedText: fullPageSimplified
+    };
+  } catch (err) {
+    console.warn("🔮 [ContextLens] Error compiling single element context:", err);
+    return null;
+  }
+}
+
 // Triggered when user clicks the floating button
 async function handleButtonClick(e) {
   e.preventDefault();
@@ -578,7 +626,22 @@ document.addEventListener("mousedown", (e) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_RICH_CONTEXT") {
     console.log("🔮 [ContextLens] Background requested rich selection context.");
-    sendResponse({ success: true, contextData: currentSelectionContext });
+    const selection = window.getSelection();
+    const hasSelection = selection && selection.toString().trim().length > 0;
+    
+    if (hasSelection && currentSelectionContext) {
+      sendResponse({ success: true, contextData: currentSelectionContext });
+    } else if (lastRightClickContext) {
+      sendResponse({ success: true, contextData: lastRightClickContext });
+    } else {
+      sendResponse({ success: false });
+    }
   }
   return true;
+});
+
+// Track the right-clicked element and compile its context
+document.addEventListener("contextmenu", (e) => {
+  lastRightClickElement = e.target;
+  lastRightClickContext = compileElementContext(e.target);
 });

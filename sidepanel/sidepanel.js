@@ -6,8 +6,19 @@ let appSettings = {
   apiKey: "",
   apiUrl: "",
   modelName: "gemini-2.5-flash",
-  temperature: 0.7
+  temperature: 0.7,
+  cwd: "",
+  claudePath: "",
+  providers: {
+    gemini: { apiKey: "", modelName: "gemini-2.5-flash" },
+    openai: { apiKey: "", modelName: "gpt-4o-mini" },
+    claude: { apiKey: "", modelName: "claude-3-5-sonnet-latest" },
+    custom: { apiKey: "", apiUrl: "", modelName: "" },
+    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" }
+  }
 };
+
+let activeFormProvider = "gemini";
 
 let currentContext = null; // { text, pageUrl, pageTitle }
 let chatHistory = []; // Unified messages history [{ role: 'user'|'assistant', content }]
@@ -84,6 +95,10 @@ const apiKey = document.getElementById("api-key");
 const toggleKeyVisibility = document.getElementById("toggle-key-visibility");
 const urlGroup = document.getElementById("url-group");
 const apiUrl = document.getElementById("api-url");
+const cwdGroup = document.getElementById("cwd-group");
+const apiCwd = document.getElementById("api-cwd");
+const claudePathGroup = document.getElementById("claude-path-group");
+const claudePath = document.getElementById("claude-path");
 const modelSelectGroup = document.getElementById("model-select-group");
 const modelLabel = document.getElementById("model-label");
 const modelInputContainer = document.getElementById("model-input-container");
@@ -105,6 +120,9 @@ const providerModels = {
   claude: [
     { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet (默认)" },
     { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku (极速)" }
+  ],
+  "claude-agent": [
+    { value: "claude-code", label: "Claude Code CLI Agent" }
   ]
 };
 
@@ -167,27 +185,109 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Load settings from chrome.storage.local
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels"]);
+  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers"]);
   
   appSettings.apiProvider = result.apiProvider || "gemini";
-  appSettings.apiKey = result.apiKey || "";
-  appSettings.apiUrl = result.apiUrl || "";
-  appSettings.modelName = result.modelName || (appSettings.apiProvider === "gemini" ? "gemini-2.5-flash" : "");
   appSettings.temperature = result.temperature !== undefined ? parseFloat(result.temperature) : 0.7;
+
+  // Set up providers config cache with robust fallback defaults
+  const defaultProviders = {
+    gemini: { apiKey: "", modelName: "gemini-2.5-flash" },
+    openai: { apiKey: "", modelName: "gpt-4o-mini" },
+    claude: { apiKey: "", modelName: "claude-3-5-sonnet-latest" },
+    custom: { apiKey: "", apiUrl: "", modelName: "" },
+    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" }
+  };
+  
+  appSettings.providers = {};
+  for (const [provId, defConfig] of Object.entries(defaultProviders)) {
+    const savedConfig = (result.providers && result.providers[provId]) ? result.providers[provId] : {};
+    appSettings.providers[provId] = { ...defConfig, ...savedConfig };
+  }
+
+  // Backward compatibility migration:
+  // If root variables exist in result, copy them to the corresponding provider inside providers cache
+  if (result.apiKey || result.apiUrl || result.modelName || result.cwd || result.claudePath) {
+    const prov = result.apiProvider || "gemini";
+    if (appSettings.providers[prov]) {
+      if (result.apiKey && !appSettings.providers[prov].apiKey) appSettings.providers[prov].apiKey = result.apiKey;
+      if (result.apiUrl && !appSettings.providers[prov].apiUrl) appSettings.providers[prov].apiUrl = result.apiUrl;
+      if (result.modelName && !appSettings.providers[prov].modelName) appSettings.providers[prov].modelName = result.modelName;
+      if (result.cwd && !appSettings.providers[prov].cwd) appSettings.providers[prov].cwd = result.cwd;
+      if (result.claudePath && !appSettings.providers[prov].claudePath) appSettings.providers[prov].claudePath = result.claudePath;
+    }
+  }
 
   // Load custom models cache
   customModels = result.customModels || [];
   customManualMode = false; // Reset toggle on load
 
-  // Apply settings to form fields
+  // Active form provider starts as saved apiProvider
+  activeFormProvider = appSettings.apiProvider;
+
+  // Apply settings to form fields based on active provider
   apiProvider.value = appSettings.apiProvider;
-  apiKey.value = appSettings.apiKey;
-  apiUrl.value = appSettings.apiUrl;
+  
+  const currentProvConfig = appSettings.providers[activeFormProvider] || {};
+  apiKey.value = currentProvConfig.apiKey || "";
+  apiUrl.value = currentProvConfig.apiUrl || "";
   modelTemperature.value = appSettings.temperature;
   tempVal.textContent = appSettings.temperature;
+  if (apiCwd) apiCwd.value = currentProvConfig.cwd || "";
+  if (claudePath) claudePath.value = currentProvConfig.claudePath || "";
+
+  // Set root values for backwards compatibility and easy lookup in triggerAIStreamResponse
+  appSettings.apiKey = currentProvConfig.apiKey || "";
+  appSettings.apiUrl = currentProvConfig.apiUrl || "";
+  appSettings.modelName = currentProvConfig.modelName || "";
+  appSettings.cwd = currentProvConfig.cwd || "";
+  appSettings.claudePath = currentProvConfig.claudePath || "";
 
   renderModelSelection(appSettings.apiProvider, appSettings.modelName);
   toggleProviderFields(appSettings.apiProvider);
+}
+
+// Sync current settings form fields into active provider's memory cache
+function syncFormToProviderCache(provider) {
+  if (!appSettings.providers) return;
+  if (!appSettings.providers[provider]) {
+    appSettings.providers[provider] = {};
+  }
+  
+  appSettings.providers[provider].apiKey = apiKey.value.trim();
+  appSettings.providers[provider].apiUrl = apiUrl.value.trim();
+  if (apiCwd) appSettings.providers[provider].cwd = apiCwd.value.trim();
+  if (claudePath) appSettings.providers[provider].claudePath = claudePath.value.trim();
+  
+  const modelEl = document.getElementById("api-model");
+  if (modelEl) {
+    appSettings.providers[provider].modelName = modelEl.value.trim();
+  }
+}
+
+function loadProviderCacheToForm(provider) {
+  if (!appSettings.providers) return;
+  
+  const defaultProviders = {
+    gemini: { apiKey: "", modelName: "gemini-2.5-flash" },
+    openai: { apiKey: "", modelName: "gpt-4o-mini" },
+    claude: { apiKey: "", modelName: "claude-3-5-sonnet-latest" },
+    custom: { apiKey: "", apiUrl: "", modelName: "" },
+    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" }
+  };
+  
+  if (!appSettings.providers[provider]) {
+    appSettings.providers[provider] = { ...(defaultProviders[provider] || {}) };
+  }
+  
+  const currentProvConfig = appSettings.providers[provider];
+  apiKey.value = currentProvConfig.apiKey || "";
+  apiUrl.value = currentProvConfig.apiUrl || "";
+  if (apiCwd) apiCwd.value = currentProvConfig.cwd || "";
+  if (claudePath) claudePath.value = currentProvConfig.claudePath || "";
+  
+  toggleProviderFields(provider);
+  renderModelSelection(provider, currentProvConfig.modelName || "");
 }
 
 // Setup Event Listeners
@@ -202,16 +302,29 @@ function setupEventListeners() {
   }
 
   // Drawer Toggle
-  settingsToggle.addEventListener("click", () => toggleDrawer(true));
+  settingsToggle.addEventListener("click", async () => {
+    await loadSettings(); // Reset to saved settings to discard unsaved edits
+    toggleDrawer(true);
+  });
   settingsClose.addEventListener("click", () => toggleDrawer(false));
-  configureNowBtn.addEventListener("click", () => toggleDrawer(true));
+  configureNowBtn.addEventListener("click", async () => {
+    await loadSettings(); // Reset to saved settings
+    toggleDrawer(true);
+  });
   document.querySelector(".drawer-overlay").addEventListener("click", () => toggleDrawer(false));
 
   // Provider change in form
   apiProvider.addEventListener("change", (e) => {
-    const provider = e.target.value;
-    toggleProviderFields(provider);
-    renderModelSelection(provider, "");
+    const newProvider = e.target.value;
+    
+    // 1. Sync current form inputs to last active provider cache
+    syncFormToProviderCache(activeFormProvider);
+    
+    // 2. Update activeFormProvider index
+    activeFormProvider = newProvider;
+    
+    // 3. Load next provider's inputs from cache and render fields
+    loadProviderCacheToForm(newProvider);
   });
 
   // Temp slider
@@ -240,16 +353,18 @@ function setupEventListeners() {
     e.preventDefault();
     
     const provider = apiProvider.value;
-    const key = apiKey.value.trim();
-    const url = apiUrl.value.trim();
     
-    // Get model depending on select/text input
-    const modelEl = document.getElementById("api-model");
-    const model = modelEl.value.trim();
+    // Sync current inputs of the active provider to cache first
+    syncFormToProviderCache(provider);
+    
+    const currentProvConfig = appSettings.providers[provider] || {};
+    const key = currentProvConfig.apiKey || "";
+    const url = currentProvConfig.apiUrl || "";
+    const model = currentProvConfig.modelName || "";
     const temp = parseFloat(modelTemperature.value);
 
     // Validate inputs
-    if (provider !== "custom" && !key) {
+    if (provider !== "custom" && provider !== "claude-agent" && !key) {
       showSettingsStatus("官方供应商必须填写 API 密钥。", "error");
       return;
     }
@@ -257,20 +372,25 @@ function setupEventListeners() {
       showSettingsStatus("自定义 API 必须填写端点基准地址 (URL)。", "error");
       return;
     }
+    if (provider === "claude-agent" && !url) {
+      showSettingsStatus("Claude Agent 必须填写 Bridge 服务基准地址。", "error");
+      return;
+    }
     if (!model) {
       showSettingsStatus("必须选择或填写模型标识符。", "error");
       return;
     }
 
-    // Save
-    appSettings = { 
-      apiProvider: provider, 
-      apiKey: key, 
-      apiUrl: url, 
-      modelName: model, 
-      temperature: temp,
-      customModels: customModels 
-    };
+    // Save active provider and temperature
+    appSettings.apiProvider = provider;
+    appSettings.temperature = temp;
+    
+    // Set root fields for backwards compatibility and easy lookup in triggerAIStreamResponse
+    appSettings.apiKey = key;
+    appSettings.apiUrl = url;
+    appSettings.modelName = model;
+    appSettings.cwd = currentProvConfig.cwd || "";
+    appSettings.claudePath = currentProvConfig.claudePath || "";
     
     await chrome.storage.local.set(appSettings);
     showSettingsStatus("设置已成功保存！", "success");
@@ -375,16 +495,39 @@ function toggleDrawer(show) {
 
 // Toggle specific fields dynamically based on provider choice
 function toggleProviderFields(provider) {
+  const apiUrlLabel = document.getElementById("api-url-label");
+  const apiUrlTip = document.getElementById("api-url-tip");
+
   if (provider === "custom") {
     urlGroup.classList.remove("hidden");
     keyGroup.classList.remove("hidden"); // Show API key for custom endpoints
     apiKeyLabel.textContent = "API 密钥 (本地可选)";
     apiKey.placeholder = "sk-...";
     keyGroup.querySelector("input").required = false;
+    
+    cwdGroup.classList.add("hidden");
+    claudePathGroup.classList.add("hidden");
+    
+    if (apiUrlLabel) apiUrlLabel.textContent = "自定义 API 基准地址 (Base URL)";
+    if (apiUrlTip) apiUrlTip.textContent = "兼容 OpenAI 规范的本地或第三方服务基准 URL (例如 Ollama, LM Studio, vLLM 等)";
+  } else if (provider === "claude-agent") {
+    urlGroup.classList.remove("hidden");
+    keyGroup.classList.add("hidden"); // Hide API Key for local bridge
+    keyGroup.querySelector("input").required = false;
+    
+    cwdGroup.classList.remove("hidden");
+    claudePathGroup.classList.remove("hidden");
+    
+    if (apiUrlLabel) apiUrlLabel.textContent = "Node Bridge 基准地址";
+    if (apiUrlTip) apiUrlTip.textContent = "本地 Claude Code Bridge 服务的 HTTP 基准地址，通常为 http://localhost:3100";
+    if (!apiUrl.value || apiUrl.value === "http://localhost:3001") apiUrl.value = "http://localhost:3100"; // Auto fill default port
   } else {
     urlGroup.classList.add("hidden");
     keyGroup.classList.remove("hidden");
     keyGroup.querySelector("input").required = true;
+    
+    cwdGroup.classList.add("hidden");
+    claudePathGroup.classList.add("hidden");
     
     if (provider === "gemini") {
       apiKeyLabel.textContent = "Gemini API 密钥";
@@ -650,7 +793,7 @@ function parseFetchedModels(responseJson) {
 
 // Update connection status pill at the bottom
 function updateStatusUI() {
-  const hasKey = appSettings.apiKey || appSettings.apiProvider === "custom";
+  const hasKey = appSettings.apiKey || appSettings.apiProvider === "custom" || appSettings.apiProvider === "claude-agent";
   
   if (hasKey && appSettings.modelName) {
     connectionStatusPill.className = "status-pill online";
@@ -658,6 +801,8 @@ function updateStatusUI() {
     let displayName = appSettings.modelName;
     if (appSettings.apiProvider === "custom") {
       displayName = `自定义: ${appSettings.modelName}`;
+    } else if (appSettings.apiProvider === "claude-agent") {
+      displayName = `本地 Agent: ${appSettings.modelName}`;
     }
     connectedModelName.textContent = displayName;
     
@@ -926,7 +1071,63 @@ async function handleSendMessage() {
   if (currentContext && chatHistory.length === 1) {
     const cd = currentContext.contextData;
     if (cd) {
-      fullPrompt = `You are helping the user analyze a webpage snippet inside a larger page context.
+      if (appSettings.apiProvider === "claude-agent") {
+        // Specialized agentic instructions for codebase edits
+        fullPrompt = `You are a local agentic coding assistant running directly in the user's project CWD workspace folder: ${appSettings.cwd || "current folder"}.
+The user is viewing a web page and selected a specific element/text. Your goal is to search the local CWD codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.
+
+[Page Context]
+Title: ${currentContext.pageTitle}
+URL: ${currentContext.pageUrl}
+${cd.pageDescription ? `Description/Summary: ${cd.pageDescription}` : ""}
+${cd.parentHeading ? `Section Heading: ${cd.parentHeading}` : ""}
+${cd.semanticPath ? `DOM Path Location: ${cd.semanticPath}` : ""}
+
+[Webpage Content Context]
+`;
+
+        if (cd.contentType === "code" && cd.codeBlock) {
+          fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
+Here is the FULL surrounding code block:
+\`\`\`${cd.codeBlock.language || ""}
+${cd.codeBlock.fullCode}
+\`\`\`
+
+The user highlighted the following specific line(s)/part:
+"${cd.selectedText}"
+`;
+        } else if (cd.contentType === "table" && cd.tableBlock) {
+          fullPrompt += `This selection lies inside a structured data table.
+Here is the simplified Markdown table representing the headers and active row:
+${cd.tableBlock}
+
+The user highlighted the following specific cell text:
+"${cd.selectedText}"
+`;
+        } else {
+          fullPrompt += `Here are the surrounding paragraphs for context:
+... ${cd.surroundingBefore || ""} [SELECTED TEXT: "${cd.selectedText}"] ${cd.surroundingAfter || ""} ...
+`;
+        }
+
+        // Append simplified full-page context if checkbox is checked
+        const includeFullPageToggle = document.getElementById("include-full-page-context");
+        if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
+          fullPrompt += `\n[Full Page Simplified Context]\nBelow is a token-efficient, simplified extraction of the main body of this webpage:\n"""\n${cd.fullPageSimplifiedText}\n"""\n`;
+        }
+
+        fullPrompt += `
+[User Prompt / Instructions]
+${text}
+
+[Goal & Execution Steps]
+1. Search the CWD codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) that contains the selected UI text "${cd.selectedText}" or matches this surrounding context.
+2. Edit the file directly in the local CWD codebase to perform the user's instructions: "${text}".
+3. Verify your changes and output a concise summary of the changes and the git diff.
+`;
+      } else {
+        // Standard non-agent prompt
+        fullPrompt = `You are helping the user analyze a webpage snippet inside a larger page context.
 Here are the rich details captured from the active browser tab:
 
 [Page Context]
@@ -940,8 +1141,8 @@ ${cd.semanticPath ? `DOM Path Location: ${cd.semanticPath}` : ""}
 [Webpage Content Context]
 `;
 
-      if (cd.contentType === "code" && cd.codeBlock) {
-        fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
+        if (cd.contentType === "code" && cd.codeBlock) {
+          fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
         
 Here is the FULL surrounding code block:
 \`\`\`${cd.codeBlock.language || ""}
@@ -951,8 +1152,8 @@ ${cd.codeBlock.fullCode}
 The user highlighted the following specific line(s)/part:
 "${cd.selectedText}"
 `;
-      } else if (cd.contentType === "table" && cd.tableBlock) {
-        fullPrompt += `This selection lies inside a structured data table.
+        } else if (cd.contentType === "table" && cd.tableBlock) {
+          fullPrompt += `This selection lies inside a structured data table.
 
 Here is the simplified Markdown table representing the headers and active row:
 ${cd.tableBlock}
@@ -960,29 +1161,47 @@ ${cd.tableBlock}
 The user highlighted the following specific cell text:
 "${cd.selectedText}"
 `;
-      } else {
-        // Text type with surrounding paragraphs (sliding window)
-        fullPrompt += `Here are the surrounding paragraphs (sliding window) for context:
+        } else {
+          // Text type with surrounding paragraphs (sliding window)
+          fullPrompt += `Here are the surrounding paragraphs (sliding window) for context:
 ... ${cd.surroundingBefore || ""} [SELECTED TEXT: "${cd.selectedText}"] ${cd.surroundingAfter || ""} ...
 `;
-      }
+        }
 
-      // Append simplified full-page context if checkbox is checked
-      const includeFullPageToggle = document.getElementById("include-full-page-context");
-      if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
-        fullPrompt += `\n[Full Page Simplified Context]\nBelow is a token-efficient, simplified extraction of the main body of this webpage:\n"""\n${cd.fullPageSimplifiedText}\n"""\n`;
-      }
+        // Append simplified full-page context if checkbox is checked
+        const includeFullPageToggle = document.getElementById("include-full-page-context");
+        if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
+          fullPrompt += `\n[Full Page Simplified Context]\nBelow is a token-efficient, simplified extraction of the main body of this webpage:\n"""\n${cd.fullPageSimplifiedText}\n"""\n`;
+        }
 
-      fullPrompt += `\n[User Prompt / Instructions]\n${text}`;
+        fullPrompt += `\n[User Prompt / Instructions]\n${text}`;
+      }
     } else {
       // Basic context fallback
-      fullPrompt = `You are helping the user analyze a webpage snippet.
+      if (appSettings.apiProvider === "claude-agent") {
+        fullPrompt = `You are a local agentic coding assistant running directly in the user's project CWD workspace folder: ${appSettings.cwd || "current folder"}.
+The user is viewing a web page and selected a specific element/text. Your goal is to search the CWD codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.
+
+Page Title: ${currentContext.pageTitle}
+Page URL: ${currentContext.pageUrl}
+Selected Snippet: "${currentContext.text}"
+
+[User Prompt / Instructions]
+${text}
+
+[Goal & Execution Steps]
+1. Search the CWD codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) containing the selected UI text "${currentContext.text}".
+2. Edit the file directly in the local CWD codebase to perform the user's instructions: "${text}".
+3. Verify your changes and output a concise summary of the changes and the git diff.`;
+      } else {
+        fullPrompt = `You are helping the user analyze a webpage snippet.
 Selected Snippet: "${currentContext.text}"
 Page Title: ${currentContext.pageTitle}
 Page URL: ${currentContext.pageUrl}
 Note for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.
 
 User Question: ${text}`;
+      }
     }
 
     // Update the actual saved message content in history 
@@ -1043,7 +1262,7 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
   }
 
   // Check configs
-  if (!appSettings.apiKey && appSettings.apiProvider !== "custom") {
+  if (!appSettings.apiKey && appSettings.apiProvider !== "custom" && appSettings.apiProvider !== "claude-agent") {
     appendMessage("assistant", "⚠️ ContextLens 尚未完成配置。请点击右上角打开 AI 服务端配置面板，填写您的 API 密钥并保存！");
     return;
   }
@@ -1378,6 +1597,152 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
           }
         }
       }
+    } else if (apiProvider === "claude-agent") {
+      // Stream via local Node Bridge
+      const url = `${apiUrl}/api/chat`;
+      
+      let promptToSend = promptText;
+      if (chatHistory.length > 2) {
+        let historyPrompt = "You are working in a multi-turn session. Here is the conversation history so far for your reference:\n\n";
+        for (let i = 0; i < chatHistory.length - 2; i++) {
+          const msg = chatHistory[i];
+          const sender = msg.role === "user" ? "User" : "Assistant";
+          historyPrompt += `--- ${sender} ---\n${msg.content}\n\n`;
+        }
+        historyPrompt += `--- Current User Request ---\n${promptText}`;
+        promptToSend = historyPrompt;
+      }
+
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: promptToSend,
+          cwd: appSettings.cwd || "",
+          claudePath: appSettings.claudePath || ""
+        })
+      });
+
+      if (!response.ok) {
+        const errObj = await response.json().catch(() => ({}));
+        throw new Error(errObj.error || `本地 Bridge 返回错误: ${response.status}`);
+      }
+
+      reader = response.body.getReader();
+      activeReader = reader;
+      const decoder = new TextDecoder();
+
+      if (targetTabId === currentTabId && bubbleContent) {
+        bubbleContent.innerHTML = `
+          <div class="agent-markdown-content"></div>
+          <div class="agent-progress hidden" style="margin-top: 8px; padding: 6px 10px; background: rgba(99, 102, 241, 0.04); border-left: 2px solid #6366f1; font-family: monospace; font-size: 11px; border-radius: 0 4px 4px 0;">
+            <div class="agent-status-header" style="font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: var(--accent-indigo);">
+              <svg class="spinning-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              本地 Agent 运行中...
+            </div>
+            <div class="agent-log-content" style="white-space: pre-wrap; max-height: 120px; overflow-y: auto; color: var(--text-secondary);"></div>
+          </div>
+        `;
+      }
+
+      let buffer = "";
+      let systemLogsText = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine) continue;
+
+          if (cleanLine.startsWith("data: ")) {
+            const rawData = cleanLine.substring(6).trim();
+            if (rawData === "[DONE]") {
+              // Mark the progress box as complete
+              if (targetTabId === currentTabId) {
+                let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+                if (!activeBubble) activeBubble = bubbleContent;
+                if (activeBubble) {
+                  const headerEl = activeBubble.querySelector(".agent-status-header");
+                  if (headerEl) {
+                    headerEl.innerHTML = `
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      本地 Agent 运行完毕
+                    `;
+                    headerEl.style.color = "#10b981";
+                  }
+                  const progressBox = activeBubble.querySelector(".agent-progress");
+                  if (progressBox) {
+                    progressBox.style.borderLeftColor = "#10b981";
+                    progressBox.style.background = "rgba(16, 185, 129, 0.04)";
+                  }
+                }
+              }
+              break;
+            }
+
+            try {
+              const parsed = JSON.parse(rawData);
+              
+              if (parsed.type === "text" && parsed.text) {
+                streamedText += parsed.text;
+                assistantMsgObj.content = streamedText;
+                
+                if (targetTabId === currentTabId) {
+                  let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+                  if (!activeBubble) activeBubble = bubbleContent;
+                  if (activeBubble) {
+                    const markdownEl = activeBubble.querySelector(".agent-markdown-content");
+                    if (markdownEl) {
+                      markdownEl.innerHTML = formatMarkdown(streamedText);
+                    }
+                  }
+                  scrollToBottom();
+                }
+              } else if (parsed.type === "system" && parsed.text) {
+                systemLogsText += parsed.text;
+                
+                if (targetTabId === currentTabId) {
+                  let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+                  if (!activeBubble) activeBubble = bubbleContent;
+                  if (activeBubble) {
+                    const progressBox = activeBubble.querySelector(".agent-progress");
+                    const logContent = activeBubble.querySelector(".agent-log-content");
+                    if (progressBox && logContent) {
+                      progressBox.classList.remove("hidden");
+                      logContent.textContent = systemLogsText;
+                      logContent.scrollTop = logContent.scrollHeight;
+                    }
+                  }
+                  scrollToBottom();
+                }
+              } else if (parsed.type === "error" && parsed.text) {
+                streamedText += `\n${parsed.text}\n`;
+                assistantMsgObj.content = streamedText;
+                
+                if (targetTabId === currentTabId) {
+                  let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+                  if (!activeBubble) activeBubble = bubbleContent;
+                  if (activeBubble) {
+                    const markdownEl = activeBubble.querySelector(".agent-markdown-content");
+                    if (markdownEl) {
+                      markdownEl.innerHTML = formatMarkdown(streamedText);
+                    }
+                  }
+                  scrollToBottom();
+                }
+              }
+            } catch (e) {
+              // Ignore JSON parse errors for partial lines
+            }
+          }
+        }
+      }
     }
 
     activeReader = null;
@@ -1391,13 +1756,21 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
       let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
       if (!activeBubble) activeBubble = bubbleContent;
       if (activeBubble) {
+        let errorTitle = "API 请求发送失败";
+        let errorDesc = err.message || "发生未知网络连接错误。请检查您的网络连接、API 密钥以及自定义服务端基准地址是否正确。";
+        
+        if (appSettings.apiProvider === "claude-agent") {
+          errorTitle = "无法连接到本地 Bridge 服务";
+          errorDesc = `请确认您已在项目目录下执行下列命令启动 Bridge 服务：<br><code style="background:rgba(220,38,38,0.08);color:#dc2626;padding:2px 4px;border-radius:4px;font-family:monospace;margin-top:4px;display:inline-block;">node bridge/server.js</code><br><br>错误信息: ${err.message}`;
+        }
+        
         activeBubble.innerHTML = `
           <div style="color: #dc2626; border: 1px solid rgba(220, 38, 38, 0.15); background: rgba(220, 38, 38, 0.04); padding: 8px 12px; border-radius: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px;">
             <span style="font-weight: bold; display: flex; align-items: center; gap: 4px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              API 请求发送失败
+              ${errorTitle}
             </span>
-            <span>${err.message || "发生未知网络连接错误。请检查您的网络连接、API 密钥以及自定义服务端基准地址是否正确。"}</span>
+            <span>${errorDesc}</span>
           </div>
         `;
       }

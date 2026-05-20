@@ -145,6 +145,7 @@
                 <option value="openai">OpenAI 官方 API</option>
                 <option value="claude">Anthropic Claude 官方 API</option>
                 <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
+                <option value="claude-agent">Claude Code 本地 Agent</option>
               </select>
             </div>
 
@@ -162,11 +163,25 @@
               </div>
             </div>
 
-            <!-- Base URL (Only for Custom API) -->
+            <!-- Base URL (Only for Custom API and Claude Agent) -->
             <div class="form-group hidden" id="url-group">
-              <label for="api-url">自定义 API 基准地址 (Base URL)</label>
-              <input type="text" id="api-url" placeholder="例如 http://localhost:11434">
-              <small class="form-tip">兼容 OpenAI 规范的本地或第三方服务基准 URL (例如 Ollama, LM Studio, vLLM 等)</small>
+              <label for="api-url" id="api-url-label">基准地址 / Bridge 地址</label>
+              <input type="text" id="api-url" placeholder="例如 http://localhost:3100">
+              <small class="form-tip" id="api-url-tip">兼容 OpenAI 规范的本地基准 URL，或 Local Claude Code Bridge 地址</small>
+            </div>
+
+            <!-- Workspace CWD (Only for Claude Agent) -->
+            <div class="form-group hidden" id="cwd-group">
+              <label for="api-cwd">本地项目绝对路径 (CWD)</label>
+              <input type="text" id="api-cwd" placeholder="例如 /Users/liuzhe.x/coding/ContextLens">
+              <small class="form-tip">Claude Agent 运行的本地工作区路径（默认使用 Bridge 服务的工作目录）</small>
+            </div>
+
+            <!-- Claude Executable Path (Only for Claude Agent - Optional) -->
+            <div class="form-group hidden" id="claude-path-group">
+              <label for="claude-path">Claude 执行文件路径 (可选/自动探测)</label>
+              <input type="text" id="claude-path" placeholder="留空以使用 Bridge 服务自动探测的路径">
+              <small class="form-tip">通常留空即可。如果需要强制指定本地 Claude CLI 的绝对路径可在此填写</small>
             </div>
 
             <!-- Model Selection dropdown (or manual input for Custom) -->
