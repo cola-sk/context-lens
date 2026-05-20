@@ -989,9 +989,10 @@ function rebuildUIForActiveTab() {
       const isUser = msg.role === "user";
       const msgEl = document.createElement("div");
       msgEl.className = `message ${msg.role}`;
+      const contentToDisplay = msg.displayText || msg.content;
       msgEl.innerHTML = `
         <span class="message-sender">${isUser ? "您" : "Lens"}</span>
-        <div class="message-bubble">${formatMarkdown(msg.content)}</div>
+        <div class="message-bubble">${formatMarkdown(contentToDisplay)}</div>
       `;
       messagesList.appendChild(msgEl);
     });
@@ -1029,7 +1030,7 @@ async function handleNewSelection(selection) {
   saveActiveTabState();
 
   const state = getTabState(tabId);
-  if (selection.text) {
+  if (selection.text || selection.contextData) {
     state.currentContext = selection;
     state.includeFullPageChecked = false; // Reset to unchecked for safety
   }
@@ -1208,6 +1209,7 @@ User Question: ${text}`;
     // so that all subsequent turns will carry over the rich webpage context!
     // Also set a flag so API callers know history[0] already contains full context.
     if (chatHistory.length > 0) {
+      chatHistory[0].displayText = chatHistory[0].displayText || chatHistory[0].content;
       chatHistory[0].content = fullPrompt;
       chatHistory[0]._contextEmbedded = true; // mark as having context already embedded
       if (messageTabId) {
@@ -1635,18 +1637,18 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
       if (targetTabId === currentTabId && bubbleContent) {
         bubbleContent.innerHTML = `
           <div class="agent-markdown-content"></div>
-          <div class="agent-progress hidden" style="margin-top: 8px; padding: 6px 10px; background: rgba(99, 102, 241, 0.04); border-left: 2px solid #6366f1; font-family: monospace; font-size: 11px; border-radius: 0 4px 4px 0;">
-            <div class="agent-status-header" style="font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: var(--accent-indigo);">
+          <div class="agent-progress" style="margin-top: 8px; padding: 6px 10px; background: rgba(99, 102, 241, 0.04); border-left: 2px solid #6366f1; font-family: monospace; font-size: 11px; border-radius: 0 4px 4px 0;">
+            <div class="agent-status-header" style="font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: #6366f1;">
               <svg class="spinning-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="animation: spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
               本地 Agent 运行中...
             </div>
-            <div class="agent-log-content" style="white-space: pre-wrap; max-height: 120px; overflow-y: auto; color: var(--text-secondary);"></div>
+            <div class="agent-log-content" style="white-space: pre-wrap; max-height: 120px; overflow-y: auto; color: var(--text-secondary);">正在启动并初始化本地 Claude Code CLI...</div>
           </div>
         `;
       }
 
       let buffer = "";
-      let systemLogsText = "";
+      let systemLogsText = "正在启动并初始化本地 Claude Code CLI...\n";
 
       while (true) {
         const { value, done } = await reader.read();

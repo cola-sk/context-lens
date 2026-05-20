@@ -3,6 +3,9 @@
 // Track which tabs have side panel active
 let activeSidePanelTabs = new Set();
 
+// Cache of the latest right-clicked context per tab
+let tabRightClickContexts = {};
+
 // Disable side panel globally by default on background script startup
 chrome.sidePanel.setOptions({
   enabled: false
@@ -72,23 +75,55 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       pageUrl: tab.url,
       pageTitle: tab.title,
       timestamp: Date.now(),
-      contextData: null // Will be populated if content script replies
+      contextData: null
     };
 
-    // 2. Safely attempt to query the active tab's content script and save context asynchronously
+    // 2. Query cache first, and fall back to content script message querying if cache is missing or stale
     (async () => {
-      try {
-        const response = await chrome.tabs.sendMessage(tab.id, { type: "GET_RICH_CONTEXT" });
-        if (response && response.success && response.contextData) {
-          console.log("🔮 [ContextLens Background] Successfully retrieved rich DOM context for menu selection!");
-          selectionPayload.contextData = response.contextData;
-          // Fallback selection text to the right-clicked element text if selectionText is empty
-          if (!selectionPayload.text && response.contextData.selectedText) {
-            selectionPayload.text = response.contextData.selectedText;
+      const cached = tabRightClickContexts[tab.id];
+      const isCacheFresh = cached && (Date.now() - cached.timestamp < 5000); // 5 seconds threshold
+
+      if (isCacheFresh) {
+        console.log("🔮 [ContextLens Background] Using fresh cached right-click context!");
+        selectionPayload.contextData = cached.contextData;
+        if (!selectionPayload.text && cached.text) {
+          selectionPayload.text = cached.text;
+        }
+      } else {
+        try {
+          // If no fresh cache, query the content script of the specific frame that was clicked
+          const response = await chrome.tabs.sendMessage(
+            tab.id, 
+            { type: "GET_RICH_CONTEXT" }, 
+            { frameId: info.frameId }
+          );
+          if (response && response.success && response.contextData) {
+            console.log("🔮 [ContextLens Background] Successfully retrieved rich DOM context from active frame!");
+            selectionPayload.contextData = response.contextData;
+            if (!selectionPayload.text && response.contextData.selectedText) {
+              selectionPayload.text = response.contextData.selectedText;
+            }
+          }
+        } catch (err) {
+          console.log("🔮 [ContextLens Background] Active frame not ready or no context cached. Using fallback.", err.message);
+          
+          // Self-heal: dynamically inject content script if missing
+          if (err.message.includes("Could not establish connection") || err.message.includes("Receiving end does not exist")) {
+            try {
+              await chrome.scripting.executeScript({
+                target: { tabId: tab.id, frameIds: [info.frameId || 0] },
+                files: ["content.js"]
+              });
+              await chrome.scripting.insertCSS({
+                target: { tabId: tab.id, frameIds: [info.frameId || 0] },
+                files: ["content.css"]
+              });
+              console.log("🔮 [ContextLens Background] Dynamically self-healed and injected content script into frame!");
+            } catch (injectErr) {
+              console.warn("🔮 [ContextLens Background] Self-healing injection failed:", injectErr);
+            }
           }
         }
-      } catch (err) {
-        console.log("🔮 [ContextLens Background] Content script not ready or no rich context cached. Using fallback.", err.message);
       }
 
       // 3. Save selection details to session storage (notifies side panel)
@@ -99,8 +134,23 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Handle messages from content script (Floating Action Button click)
+// Handle messages from content script (Floating Action Button click or right click caching)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "RIGHT_CLICK_CONTEXT") {
+    const tabId = sender.tab?.id;
+    if (tabId) {
+      tabRightClickContexts[tabId] = {
+        contextData: message.contextData,
+        text: message.text,
+        isSelection: message.isSelection,
+        timestamp: Date.now()
+      };
+      console.log(`🔮 [ContextLens Background] Cached right-click context for tab ${tabId}. IsSelection: ${message.isSelection}`);
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (message.type === "OPEN_SIDE_PANEL") {
     activeSidePanelTabs.add(sender.tab.id);
     chrome.sidePanel.setOptions({

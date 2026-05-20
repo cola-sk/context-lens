@@ -437,16 +437,49 @@ function compileElementContext(element) {
   if (!element) return null;
 
   try {
-    const range = document.createRange();
-    range.selectNode(element);
-
-    const selectedText = element.innerText ? element.innerText.trim() : (element.textContent ? element.textContent.trim() : "");
-    if (!selectedText) return null; // Ignore empty containers
+    let selectedText = element.innerText ? element.innerText.trim() : (element.textContent ? element.textContent.trim() : "");
+    
+    // Support non-text elements (images, inputs, buttons, structural nodes)
+    if (!selectedText && element.tagName === "IMG") {
+      selectedText = `[Image: ${element.alt || element.src || "unnamed"}]`;
+    } else if (!selectedText && (element.tagName === "INPUT" || element.tagName === "TEXTAREA")) {
+      selectedText = `[Input Value: ${element.value || ""} | Placeholder: ${element.placeholder || ""}]`;
+    } else if (!selectedText) {
+      selectedText = `[Empty ${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${element.className ? `.${element.className.split(" ").join(".")}` : ""}]`;
+    }
 
     const enclosingCode = findEnclosingCodeBlock(element);
     const enclosingTable = findEnclosingTable(element);
     const parentHeading = findPrecedingHeading(element);
-    const surrounding = getSurroundingText(range, 800);
+
+    let surrounding = { before: "", after: "" };
+    try {
+      const range = document.createRange();
+      range.selectNode(element);
+      surrounding = getSurroundingText(range, 800);
+    } catch (e) {
+      // Sibling fallback if Range selection fails (e.g. for void elements like IMG)
+      let beforeText = "";
+      let afterText = "";
+      let prev = element.previousElementSibling;
+      let count = 0;
+      while (prev && beforeText.length < 800 && count < 3) {
+        beforeText = (prev.innerText || prev.textContent || "") + "\n" + beforeText;
+        prev = prev.previousElementSibling;
+        count++;
+      }
+      let next = element.nextElementSibling;
+      count = 0;
+      while (next && afterText.length < 800 && count < 3) {
+        afterText = afterText + "\n" + (next.innerText || next.textContent || "");
+        next = next.nextElementSibling;
+        count++;
+      }
+      surrounding = {
+        before: beforeText.substring(Math.max(0, beforeText.length - 800)).trim(),
+        after: afterText.substring(0, 800).trim()
+      };
+    }
 
     let contentType = "text";
     if (enclosingCode) contentType = "code";
@@ -629,19 +662,74 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const selection = window.getSelection();
     const hasSelection = selection && selection.toString().trim().length > 0;
     
+    let useSelection = false;
     if (hasSelection && currentSelectionContext) {
+      if (selection.rangeCount > 0 && lastRightClickElement) {
+        try {
+          const range = selection.getRangeAt(0);
+          // Only use standard highlighted text selection if the right-click occurred inside/intersected that selection
+          if (range.intersectsNode(lastRightClickElement) || lastRightClickElement.contains(range.commonAncestorContainer)) {
+            useSelection = true;
+          }
+        } catch (e) {
+          useSelection = true;
+        }
+      } else {
+        useSelection = true;
+      }
+    }
+    
+    if (useSelection && currentSelectionContext) {
+      console.log("🔮 [ContextLens] User right-clicked inside an active text highlight. Using text selection.");
       sendResponse({ success: true, contextData: currentSelectionContext });
     } else if (lastRightClickContext) {
+      console.log("🔮 [ContextLens] User right-clicked a DOM element directly. Using right-clicked element context.");
       sendResponse({ success: true, contextData: lastRightClickContext });
     } else {
+      console.log("🔮 [ContextLens] No context available.");
       sendResponse({ success: false });
     }
   }
   return true;
 });
 
-// Track the right-clicked element and compile its context
+// Track the right-clicked element and compile its context (Capturing phase avoids event bubbling blockers)
 document.addEventListener("contextmenu", (e) => {
   lastRightClickElement = e.target;
   lastRightClickContext = compileElementContext(e.target);
-});
+
+  // Check if right-click happened inside an active text selection
+  const selection = window.getSelection();
+  const hasSelection = selection && selection.toString().trim().length > 0;
+  let useSelection = false;
+  let contextData = lastRightClickContext;
+
+  if (hasSelection && currentSelectionContext) {
+    if (selection.rangeCount > 0) {
+      try {
+        const range = selection.getRangeAt(0);
+        // Check if selection intersects the clicked element or is enclosing it
+        if (range.intersectsNode(e.target) || e.target.contains(range.commonAncestorContainer)) {
+          useSelection = true;
+          contextData = currentSelectionContext;
+        }
+      } catch (err) {
+        useSelection = true;
+        contextData = currentSelectionContext;
+      }
+    } else {
+      useSelection = true;
+      contextData = currentSelectionContext;
+    }
+  }
+
+  // Pre-emptively send this context to the background script
+  chrome.runtime.sendMessage({
+    type: "RIGHT_CLICK_CONTEXT",
+    contextData: contextData,
+    text: useSelection ? selection.toString().trim() : (contextData ? contextData.selectedText : ""),
+    isSelection: useSelection
+  }).catch((err) => {
+    // Ignore message sending errors (e.g. extension reloaded)
+  });
+}, true);
