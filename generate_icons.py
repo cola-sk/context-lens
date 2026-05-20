@@ -1,52 +1,39 @@
-# Python script to generate ContextLens extension PNG icons using PIL
+"""
+ContextLens Icon Generator
+--------------------------
+Generates 16x16, 48x48, 128x128 PNG icons from the flat design source image.
 
-from PIL import Image, ImageDraw
+Source: icon_flat_v2 — indigo squircle flat design
+  - Background: #4F46E5 flat indigo squircle
+  - Icon: white magnifying glass + text lines + AI sparkle star
+  - Style: pure flat, no gradients, no shadows
+
+To regenerate icons, run:
+  python3 generate_icons.py
+"""
+
+from PIL import Image
 import os
 
-os.makedirs('icons', exist_ok=True)
+# Path to the master flat-design source image (1024x1024)
+SRC_IMAGE = os.path.join(
+    os.path.expanduser("~"),
+    ".gemini/antigravity/brain/77b52dbc-28a1-4877-966d-ac09005c90bd/icon_flat_v2_1779258562849.png"
+)
 
-# Generate icons for standard sizes
+os.makedirs("icons", exist_ok=True)
+
+img = Image.open(SRC_IMAGE).convert("RGBA")
+w, h = img.size
+
+# Crop away the light grey outer border (82px padding on each side)
+pad = 82
+cropped = img.crop((pad, pad, w - pad, h - pad))
+
 for size in [16, 48, 128]:
-    # Create transparent image
-    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    
-    # Outer Rounded Rectangle (Indigo base)
-    margin = max(1, size // 16)
-    radius = size // 4
-    
-    # Draw rounded background
-    draw.rounded_rectangle(
-        [margin, margin, size - margin, size - margin],
-        radius=radius,
-        fill='#6366f1' # indigo-500
-    )
-    
-    # Draw a sleek circular lens outline inside
-    cx = int(size * 7 // 16)
-    cy = int(size * 7 // 16)
-    r = int(size * 3.5 // 16)
-    
-    # Magnifying glass circle outline (crisp white)
-    stroke_width = int(max(1, size // 16))
-    draw.ellipse(
-        [cx - r, cy - r, cx + r, cy + r],
-        outline='white',
-        width=stroke_width
-    )
-    
-    # Diagonal handle
-    hx_start = int(cx + r * 0.707)
-    hy_start = int(cy + r * 0.707)
-    hx_end = int(size * 12.5 // 16)
-    hy_end = int(size * 12.5 // 16)
-    draw.line(
-        [hx_start, hy_start, hx_end, hy_end],
-        fill='white',
-        width=int(stroke_width * 1.5),
-        joint='round'
-    )
-    
-    # Save the file
-    img.save(f'icons/icon-{size}.png')
-    print(f'Created icons/icon-{size}.png ({size}x{size})')
+    resized = cropped.resize((size, size), Image.LANCZOS)
+    out_path = f"icons/icon-{size}.png"
+    resized.save(out_path, "PNG")
+    print(f"✅ Generated: {out_path} ({size}x{size})")
+
+print("\n🎉 All icons generated successfully!")

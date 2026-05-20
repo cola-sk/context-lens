@@ -291,9 +291,19 @@ function createFloatingButton() {
   // High-tech lens SVG icon
   floatBtn.innerHTML = `
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2.5"/>
-      <path d="M20 20L16 16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-      <circle cx="11" cy="11" r="3" fill="currentColor" opacity="0.3"/>
+      <!-- Context Text Lines (High-tech scanning target) -->
+      <path d="M4 6h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+      <path d="M4 11h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+      <path d="M4 16h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+      <path d="M4 21h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+      
+      <!-- AI Lens (Concentric scanning circles and handle) -->
+      <circle cx="13" cy="14" r="5" stroke="currentColor" stroke-width="2"/>
+      <circle cx="13" cy="14" r="2" fill="currentColor" opacity="0.3"/>
+      <path d="M16.5 17.5l3.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      
+      <!-- AI Sparkle Star -->
+      <path d="M19 2c0 1.6 1.4 3 3 3c-1.6 0-3 1.4-3 3c0-1.6-1.4-3-3-3c1.6 0 3-1.4 3-3z" fill="currentColor"/>
     </svg>
     <span>探索</span>
   `;
