@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContextLens</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body class="light-theme">
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <svg class="logo-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M20 20L16 16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="11" cy="11" r="3" fill="currentColor" class="pulsing-core"/>
+        </svg>
+        <span class="logo-text">Context<span class="glow-accent">Lens</span></span>
+      </div>
+      <button id="settings-toggle" class="header-btn" title="AI 服务设置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Main Content Panel -->
+    <main class="chat-container">
+      
+      <!-- Welcome Screen (Displays when no chat has started) -->
+      <div id="welcome-screen" class="welcome-screen">
+        <div class="welcome-card">
+          <div class="welcome-icon-box">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"></path>
+              <line x1="9" y1="18" x2="15" y2="18"></line>
+              <line x1="10" y1="22" x2="14" y2="22"></line>
+            </svg>
+          </div>
+          <h2>已准备就绪，静待探索</h2>
+          <p>在网页上选中任何文本，点击悬浮的 <strong>Lens</strong> 按钮或右键选择 Ask ContextLens，插件将提取深度 DOM 上下文并为您提供精辟的 AI 解答。</p>
+          <div class="welcome-guide">
+            <div class="guide-item">
+              <span class="step-num">1</span>
+              <span>在网页上划词选中任意文本</span>
+            </div>
+            <div class="guide-item">
+              <span class="step-num">2</span>
+              <span>点击悬浮 Lens 按钮或右键菜单</span>
+            </div>
+            <div class="guide-item">
+              <span class="step-num">3</span>
+              <span>在此面板与 AI 展开无缝对话</span>
+            </div>
+          </div>
+          <button id="configure-now-btn" class="glow-button">配置 AI 服务设置</button>
+        </div>
+      </div>
+
+      <!-- Active Context Panel (Shows selected text card) -->
+      <div id="context-banner" class="context-banner hidden">
+        <div class="context-card">
+          <div class="context-header">
+            <span class="context-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              选中的网页文本
+            </span>
+            <button id="clear-context-btn" class="text-btn" title="清除选区">清除</button>
+          </div>
+          <p id="context-text" class="context-body"></p>
+          
+          <!-- Rich DOM Context Insights Accordion -->
+          <div id="context-insights" class="context-insights hidden">
+            <button id="insights-toggle" class="insights-toggle" type="button">
+              <span class="insights-toggle-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                <span id="insights-badge" class="insights-badge-tag">上下文视窗</span>
+              </span>
+              <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div id="insights-content" class="insights-content">
+              <!-- Dynamically populated by sidepanel.js -->
+            </div>
+          </div>
+          
+          <!-- Include Full Page Context Checkbox -->
+          <div class="full-page-toggle-container">
+            <label class="full-page-checkbox-label">
+              <input type="checkbox" id="include-full-page-context">
+              <span class="checkbox-custom"></span>
+              <span class="label-text">💡 附加完整文章上下文</span>
+            </label>
+          </div>
+
+          <div class="context-meta">
+            <span id="context-source-page" class="meta-item truncate">
+              <!-- Source URL loaded via script -->
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Messages View -->
+      <div id="messages-list" class="messages-list hidden">
+        <!-- Message elements dynamically created in JS -->
+      </div>
+      
+    </main>
+
+    <!-- Settings Drawer (Hidden by default) -->
+    <div id="settings-drawer" class="settings-drawer hidden">
+      <div class="drawer-overlay"></div>
+      <div class="drawer-content">
+        <div class="drawer-header">
+          <h3>AI 服务端配置</h3>
+          <button id="settings-close" class="close-btn">&times;</button>
+        </div>
+        <div class="drawer-body">
+          <form id="settings-form">
+            <!-- Provider Selector -->
+            <div class="form-group">
+              <label for="api-provider">AI 供应商 (Provider)</label>
+              <select id="api-provider">
+                <option value="gemini">Google Gemini 官方 API</option>
+                <option value="openai">OpenAI 官方 API</option>
+                <option value="claude">Anthropic Claude 官方 API</option>
+                <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
+              </select>
+            </div>
+
+            <!-- API Key (Hidden if local/custom with no auth) -->
+            <div class="form-group" id="key-group">
+              <label for="api-key" id="api-key-label">API 密钥 (API Key)</label>
+              <div class="input-password-wrapper">
+                <input type="password" id="api-key" placeholder="请输入您的 API 密钥">
+                <button type="button" id="toggle-key-visibility" class="visibility-btn">
+                  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Base URL (Only for Custom API) -->
+            <div class="form-group hidden" id="url-group">
+              <label for="api-url">自定义 API 基准地址 (Base URL)</label>
+              <input type="text" id="api-url" placeholder="例如 http://localhost:11434">
+              <small class="form-tip">兼容 OpenAI 规范的本地或第三方服务基准 URL (例如 Ollama, LM Studio, vLLM 等)</small>
+            </div>
+
+            <!-- Model Selection dropdown (or manual input for Custom) -->
+            <div class="form-group" id="model-select-group">
+              <label for="api-model" id="model-label">模型标识符 (Model)</label>
+              <div id="model-input-container">
+                <!-- Dropdown or input field will be injected dynamically -->
+                <select id="api-model"></select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="model-temperature">模型温度 / 创造力 (Temperature)</label>
+              <div class="range-wrapper">
+                <input type="range" id="model-temperature" min="0" max="2" step="0.1" value="0.7">
+                <span id="temp-val">0.7</span>
+              </div>
+            </div>
+
+            <button type="submit" class="submit-button glow-button">保存配置</button>
+          </form>
+          <div id="settings-status" class="settings-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer Input Bar -->
+    <footer class="app-footer">
+      <div id="connection-status-pill" class="status-pill offline">
+        <span class="pulse-indicator"></span>
+        <span id="connected-model-name">未配置 AI 模型</span>
+      </div>
+      <div class="input-container">
+        <textarea id="chat-input" placeholder="输入后续提问..." rows="1" disabled></textarea>
+        <button id="send-btn" class="send-btn" disabled>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

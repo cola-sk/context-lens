@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "ContextLens",
+  "version": "1.0.0",
+  "description": "Select text on any webpage and instantly converse with Gemini, OpenAI, Claude, or custom local models in a sleek side panel.",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "contextMenus",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {},
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

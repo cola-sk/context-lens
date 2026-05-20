@@ -1,0 +1,99 @@
+/* Styling for ContextLens Floating Action Button */
+
+#contextlens-floating-btn {
+  /* Position & Layout */
+  position: absolute !important;
+  z-index: 2147483647 !important; /* Ensure it is on top of all page elements */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  padding: 5px 12px !important;
+  
+  /* Reset styles to isolate from host website's pollution */
+  margin: 0 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  
+  /* Glassmorphism Dark Theme Styling */
+  color: #f8fafc !important; /* slate-50 */
+  background: rgba(15, 23, 42, 0.85) !important; /* slate-900 with opacity */
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 9999px !important; /* Pill shape */
+  
+  /* Box Shadow & Glow */
+  box-shadow: 
+    0 4px 16px -2px rgba(15, 23, 42, 0.3),
+    0 0 0 1px rgba(99, 102, 241, 0.1), /* Indigo accent shadow */
+    0 0 12px 1px rgba(99, 102, 241, 0.15) !important;
+  
+  /* Smooth transitions */
+  transition: 
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.15s ease !important;
+  
+  opacity: 1 !important;
+}
+
+/* Hover effects */
+#contextlens-floating-btn:hover {
+  background: rgba(30, 41, 59, 0.95) !important; /* slate-800 with opacity */
+  border-color: rgba(99, 102, 241, 0.6) !important; /* Glow border */
+  color: #a5b4fc !important; /* indigo-300 */
+  transform: scale(1.06) translateY(-1px) !important;
+  box-shadow: 
+    0 6px 20px -2px rgba(15, 23, 42, 0.4),
+    0 0 0 1px rgba(99, 102, 241, 0.2),
+    0 0 16px 3px rgba(99, 102, 241, 0.3) !important; /* Stronger glow on hover */
+}
+
+/* Clicking effect */
+#contextlens-floating-btn:active,
+#contextlens-floating-btn.contextlens-clicked {
+  transform: scale(0.95) translateY(0) !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.3) !important;
+}
+
+/* Icon style adjustments */
+#contextlens-floating-btn svg {
+  display: block !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: #818cf8 !important; /* Indigo icon default */
+  transition: color 0.2s ease !important;
+}
+
+#contextlens-floating-btn:hover svg {
+  color: #6366f1 !important; /* Vibrant indigo on hover */
+  animation: contextlens-spin 4s linear infinite;
+}
+
+/* Hidden state with transitions */
+#contextlens-floating-btn.contextlens-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.85) !important;
+}
+
+/* Spin animation for the lens on hover */
+@keyframes contextlens-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
