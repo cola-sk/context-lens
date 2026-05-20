@@ -289,9 +289,12 @@ function setupEventListeners() {
     chatInput.style.height = (chatInput.scrollHeight) + "px";
   });
 
-  // Explicitly do not trigger send on Enter key press
+  // Trigger send on Ctrl+Enter (or Cmd+Enter on macOS)
   chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault(); // Prevent standard newline insertion
+      handleSendMessage(); // Send!
+    } else if (e.key === "Enter" && !e.shiftKey) {
       // Let standard newline insertion happen without sending
     }
   });
@@ -659,7 +662,7 @@ function updateStatusUI() {
     connectedModelName.textContent = displayName;
     
     chatInput.disabled = false;
-    chatInput.placeholder = "针对所选上下文进行提问...";
+    chatInput.placeholder = "针对所选上下文进行提问... (Ctrl + Enter 发送)";
     sendBtn.disabled = false;
   } else {
     connectionStatusPill.className = "status-pill offline";
