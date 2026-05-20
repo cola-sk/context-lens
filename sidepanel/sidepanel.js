@@ -984,6 +984,18 @@ Note for Agent: You are provided with the direct URL of this webpage/article. If
 
 User Question: ${text}`;
     }
+
+    // Update the actual saved message content in history 
+    // so that all subsequent turns will carry over the rich webpage context!
+    // Also set a flag so API callers know history[0] already contains full context.
+    if (chatHistory.length > 0) {
+      chatHistory[0].content = fullPrompt;
+      chatHistory[0]._contextEmbedded = true; // mark as having context already embedded
+      if (messageTabId) {
+        const state = getTabState(messageTabId);
+        state.chatHistory = [...chatHistory];
+      }
+    }
   }
 
   await triggerAIStreamResponse(fullPrompt, messageTabId);
@@ -1086,16 +1098,18 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
       }
 
       // Add history (Gemini format: role 'user' or 'model')
+      // Retrieve the first user message (which now has full context if updated)
+      const firstMsgContent = chatHistory[0]?.content || promptText;
       contents.push({
         role: "user",
-        parts: [{ text: `${geminiSystem}\n\nUser starts the session with:\n${promptText}` }]
+        parts: [{ text: `${geminiSystem}\n\nUser starts the session with:\n${firstMsgContent}` }]
       });
 
-      // Append follow-up chat history
+      // Append follow-up chat history (excluding the final assistant streaming bubble)
       for (let i = 1; i < chatHistory.length - 1; i++) {
         const msg = chatHistory[i];
         contents.push({
-          role: msg.role === "user" ? "user" : "model",
+          role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }]
         });
       }
@@ -1202,22 +1216,20 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
       }
 
       // Prepare system context
+      // Only inject selected text into system prompt if it hasn't already been
+      // embedded into chatHistory[0] as a fullPrompt (avoid duplicate context)
       let systemContent = SYSTEM_PROMPT;
-      if (currentContext) {
+      if (currentContext && !chatHistory[0]?._contextEmbedded) {
         systemContent += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
       }
 
       // Compile chat history messages
       const messages = [{ role: "system", content: systemContent }];
       
-      // Add existing chat logs
-      chatHistory.forEach((msg, idx) => {
-        if (idx === chatHistory.length - 1) return; // skip final message we are waiting reply for
-        messages.push({ role: msg.role, content: msg.content });
-      });
-
-      // Add the final user message
-      messages.push({ role: "user", content: promptText });
+      // Add existing chat logs (excluding the final assistant streaming bubble)
+      for (let i = 0; i < chatHistory.length - 1; i++) {
+        messages.push({ role: chatHistory[i].role, content: chatHistory[i].content });
+      }
 
       response = await fetch(url, {
         method: "POST",
@@ -1286,17 +1298,21 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
       const url = "https://api.anthropic.com/v1/messages";
       
       // Build Claude prompt
+      // Only inject selected text into system prompt if it hasn't already been
+      // embedded into chatHistory[0] as a fullPrompt (avoid duplicate context)
       let systemContent = SYSTEM_PROMPT;
-      if (currentContext) {
+      if (currentContext && !chatHistory[0]?._contextEmbedded) {
         systemContent += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
       }
 
       const messages = [];
-      chatHistory.forEach((msg, idx) => {
-        if (idx === chatHistory.length - 1) return;
-        messages.push({ role: msg.role === "assistant" ? "assistant" : "user", content: msg.content });
-      });
-      messages.push({ role: "user", content: promptText });
+      // Compile chat history messages (excluding the final assistant streaming bubble)
+      for (let i = 0; i < chatHistory.length - 1; i++) {
+        messages.push({
+          role: chatHistory[i].role === "assistant" ? "assistant" : "user",
+          content: chatHistory[i].content
+        });
+      }
 
       response = await fetch(url, {
         method: "POST",
