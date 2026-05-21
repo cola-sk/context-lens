@@ -279,6 +279,7 @@ const server = http.createServer((req, res) => {
 
         // Track process exit to avoid multiple response writes
         let finished = false;
+        let hasStreamedAssistantText = false;
 
         const sendSystemLog = (text) => {
           if (finished) return;
@@ -287,6 +288,9 @@ const server = http.createServer((req, res) => {
 
         const sendText = (text) => {
           if (finished) return;
+          if (typeof text === 'string' && text.length > 0) {
+            hasStreamedAssistantText = true;
+          }
           res.write(`data: ${JSON.stringify({ text, type: 'text' })}\n\n`);
         };
 
@@ -391,9 +395,13 @@ const server = http.createServer((req, res) => {
                 return;
               }
 
-              // Generic fallback: look for any text field
-              const text = json.content || json.value || json.text || json.message || '';
-              if (text && typeof text === 'string') sendText(text);
+              // Generic fallback: only surface assistant/model-authored text
+              const role = String(json.role || json.author || '').toLowerCase();
+              const isAssistantRole = role === 'assistant' || role === 'model' || role === 'ai';
+              if (isAssistantRole) {
+                const text = json.content || json.value || json.text || json.message || '';
+                if (text && typeof text === 'string') sendText(text);
+              }
               return;
             } catch (err) {
               // JSON parse error, treat as raw text
@@ -446,9 +454,13 @@ const server = http.createServer((req, res) => {
                 return;
               }
 
-              // Generic fallback: look for any text field
-              const text = json.content || json.value || json.text || json.message || '';
-              if (text && typeof text === 'string') sendText(text);
+              // Generic fallback: only surface assistant/model-authored text
+              const role = String(json.role || json.author || '').toLowerCase();
+              const isAssistantRole = role === 'assistant' || role === 'model' || role === 'ai';
+              if (isAssistantRole) {
+                const text = json.content || json.value || json.text || json.message || '';
+                if (text && typeof text === 'string') sendText(text);
+              }
               return;
             } catch (err) {
               // JSON parse error, treat as raw text
@@ -536,7 +548,9 @@ const server = http.createServer((req, res) => {
               // 4. Final CLI execution results
               if (json.type === 'result') {
                 const resText = json.result || json.content || json.value || '';
-                if (resText) {
+                // Claude may emit streamed assistant text and then a final result summary with the same content.
+                // Only emit result when no assistant text has been streamed yet.
+                if (resText && !hasStreamedAssistantText) {
                   sendText(resText);
                 }
                 return;

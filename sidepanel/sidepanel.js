@@ -3361,16 +3361,47 @@ async function applyUrlSwitchingForTab(tab) {
   applyTemporaryModelOverrideForTab(tab.id);
 }
 
-// Find first active matched rule in rules list order (precedence)
+// Score URL pattern specificity so generic catch-all patterns (like "*") lose to concrete rules.
+function getRulePatternSpecificity(pattern) {
+  if (!pattern || typeof pattern !== "string") return Number.NEGATIVE_INFINITY;
+  const clean = pattern.trim().toLowerCase();
+  if (!clean) return Number.NEGATIVE_INFINITY;
+  if (clean === "*") return -1000;
+
+  const wildcardCount = (clean.match(/\*/g) || []).length;
+  const literalLength = clean.replace(/\*/g, "").length;
+  const hasScheme = /^(https?:\/\/|file:\/\/)/.test(clean) ? 1 : 0;
+  const anchoredStart = clean.startsWith("*") ? 0 : 1;
+  const anchoredEnd = clean.endsWith("*") ? 0 : 1;
+
+  return (
+    literalLength * 10 +
+    hasScheme * 40 +
+    anchoredStart * 10 +
+    anchoredEnd * 5 -
+    wildcardCount * 3
+  );
+}
+
+// Find best matched rule by specificity (more concrete patterns win)
 function findMatchingRule(url) {
   if (!urlSwitchRules || !Array.isArray(urlSwitchRules)) return null;
-  
+
+  let bestRule = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
   for (const rule of urlSwitchRules) {
-    if (rule.enabled !== false && matchUrlPattern(url, rule.pattern)) {
-      return rule;
+    if (rule.enabled === false) continue;
+    if (!matchUrlPattern(url, rule.pattern)) continue;
+
+    const score = getRulePatternSpecificity(rule.pattern);
+    if (score > bestScore) {
+      bestScore = score;
+      bestRule = rule;
     }
   }
-  return null;
+
+  return bestRule;
 }
 
 // Match glob wildcard patterns (* matches anything, fallback to case-insensitive substring)
