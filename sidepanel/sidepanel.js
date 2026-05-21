@@ -2111,6 +2111,9 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
                 if (!activeBubble) activeBubble = bubbleContent;
                 if (activeBubble) {
                   activeBubble.innerHTML = formatMarkdown(streamedText);
+                  activeBubble.querySelectorAll(".think-block[open] .think-content").forEach(el => {
+                    el.scrollTop = el.scrollHeight;
+                  });
                 }
               }
             }
@@ -2629,6 +2632,13 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
   // Mark the bubble as agent-layout so CSS strips the default bubble background
   bubbleEl.classList.add("agent-bubble");
   bubbleEl.innerHTML = html;
+
+  // Auto-scroll internal scrollable containers to bottom
+  const logBody = bubbleEl.querySelector(".agent-log-body");
+  if (logBody) logBody.scrollTop = logBody.scrollHeight;
+  bubbleEl.querySelectorAll(".think-block[open] .think-content").forEach(el => {
+    el.scrollTop = el.scrollHeight;
+  });
 
   // Bind toggle for execution log card
   const headerEl = bubbleEl.querySelector(".agent-status-header");

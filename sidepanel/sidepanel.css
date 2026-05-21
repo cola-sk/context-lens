@@ -73,15 +73,6 @@ body.dark-theme {
   color: var(--text-primary);
 }
 
-.logo-icon {
-  color: var(--accent-indigo);
-}
-
-.logo-icon .pulsing-core {
-  animation: pulse-core 2s ease-in-out infinite;
-  color: var(--accent-cyan);
-}
-
 .logo-text {
   font-family: var(--font-display);
   font-size: 18px;
@@ -822,6 +813,8 @@ body.dark-theme {
   border-top: 1px solid rgba(99, 102, 241, 0.1);
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 .message-sender {
