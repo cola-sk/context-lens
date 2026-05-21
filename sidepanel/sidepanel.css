@@ -1007,6 +1007,74 @@ body.dark-theme {
   position: relative;
 }
 
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.label-row label {
+  margin-bottom: 0;
+}
+
+.sync-icon-btn {
+  background: none;
+  border: none;
+  color: var(--accent-indigo);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.sync-icon-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-indigo-dark);
+}
+
+.sync-icon-btn.loading {
+  animation: spin 1s linear infinite;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.modal-model-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.modal-model-select:focus {
+  border-color: var(--accent-indigo);
+  background: #fff;
+  box-shadow: 0 0 8px 1px rgba(99, 102, 241, 0.1);
+}
+
+.modal-model-select.hidden {
+  display: none;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .input-password-wrapper input {
   padding-right: 40px !important;
 }
@@ -1270,11 +1338,19 @@ body.dark-theme {
   justify-content: space-between;
   gap: 8px;
   background: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.model-quick-row:hover {
+  border-color: rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.04);
 }
 
 .model-quick-row.current {
   border-color: rgba(16, 185, 129, 0.26);
   background: rgba(16, 185, 129, 0.07);
+  cursor: default;
 }
 
 .model-quick-row-main {
@@ -2336,7 +2412,7 @@ body.dark-theme .model-list-container {
   flex-direction: column;
   gap: 8px;
   margin-bottom: 18px;
-  max-height: 280px;
+  max-height: clamp(280px, 52vh, 460px);
   overflow-y: auto;
 }
 

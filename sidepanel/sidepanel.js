@@ -616,6 +616,12 @@ async function openModelQuickPopover() {
       await applyUrlSwitchingForTab(tab);
       closeModelQuickPopover();
     });
+    restoreRow.addEventListener("click", async (e) => {
+      if (e.target.closest("button")) return;
+      delete tabTemporaryModelOverrides[tab.id];
+      await applyUrlSwitchingForTab(tab);
+      closeModelQuickPopover();
+    });
     modelQuickList.appendChild(restoreRow);
   }
 
@@ -647,13 +653,20 @@ async function openModelQuickPopover() {
     const switchBtn = row.querySelector(".switch-btn");
     const ruleBtn = row.querySelector(".rule-btn");
 
-    switchBtn.addEventListener("click", () => {
+    const applyTemporaryChoice = () => {
+      if (isCurrent) return;
       tabTemporaryModelOverrides[tab.id] = { modelId: choice.id, updatedAt: Date.now() };
       applyTemporaryModelOverrideForTab(tab.id);
       closeModelQuickPopover();
+    };
+
+    switchBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      applyTemporaryChoice();
     });
 
-    ruleBtn.addEventListener("click", () => {
+    ruleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
       const cwdDefault = choice.provider.endsWith("-agent")
         ? (appSettings.providers[choice.provider]?.cwd || appSettings.cwd || "")
         : "";
@@ -666,6 +679,11 @@ async function openModelQuickPopover() {
         cwd: cwdDefault
       });
       closeModelQuickPopover();
+    });
+
+    row.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      applyTemporaryChoice();
     });
 
     modelQuickList.appendChild(row);
@@ -721,6 +739,14 @@ function applyActiveModelToAppSettings() {
     appSettings.modelName = localAgent.id;
     appSettings.cwd = "";
     appSettings.claudePath = localAgent.executablePath || "";
+    
+    // Ensure the provider mapping is also updated for rules to see correct base values
+    if (!appSettings.providers[localAgent.id]) {
+      appSettings.providers[localAgent.id] = {};
+    }
+    appSettings.providers[localAgent.id].apiUrl = DEFAULT_BRIDGE_URL;
+    appSettings.providers[localAgent.id].claudePath = localAgent.executablePath || "";
+    
     renderAvailableModelCards();
     return;
   }
@@ -728,14 +754,18 @@ function applyActiveModelToAppSettings() {
   // No active model matched: try to pick a first available one
   const firstLocal = detectedLocalAgents.find(a => a.available);
   if (firstLocal) {
+    console.log("[DEBUG] activeModelId not found or unavailable, falling back to first local agent:", firstLocal.id);
     activeModelId = firstLocal.id;
+    chrome.storage.local.set({ activeModelId });
     applyActiveModelToAppSettings();
     return;
   }
 
   const firstApi = configuredApiModels[0];
   if (firstApi) {
+    console.log("[DEBUG] No local agents available, falling back to first API model:", firstApi.id);
     activeModelId = firstApi.id;
+    chrome.storage.local.set({ activeModelId });
     applyActiveModelToAppSettings();
     return;
   }
@@ -844,11 +874,15 @@ function renderAvailableModelCards() {
     `;
 
     if (!card.disabled) {
-      el.addEventListener("click", (e) => {
+      el.addEventListener("click", async (e) => {
         if (e.target.closest(".model-card-delete")) return;
         if (e.target.closest(".model-card-edit")) return;
         // Activate this model
         activeModelId = card.id;
+        
+        // Persist the change immediately
+        await chrome.storage.local.set({ activeModelId });
+        
         applyActiveModelToAppSettings();
         renderAvailableModelCards();
       });
@@ -1031,15 +1065,25 @@ function setupEventListeners() {
       });
     }
     if (modalModelHint) modalModelHint.textContent = providerHints[provider] || "";
+    
+    // Reset model input vs select visibility
+    const nameInput = document.getElementById("modal-model-name");
+    const nameSelect = document.getElementById("modal-model-select");
+    if (nameInput) nameInput.classList.remove("hidden");
+    if (nameSelect) nameSelect.classList.add("hidden");
+
     if (provider === "custom") {
       if (modalUrlGroup) modalUrlGroup.classList.remove("hidden");
       if (modalKeyGroup) modalKeyGroup.classList.remove("hidden");
+      // Show sync button for custom providers
+      const modalSyncBtn = document.getElementById("modal-sync-models-btn");
+      if (modalSyncBtn) modalSyncBtn.classList.remove("hidden");
     } else {
       if (modalUrlGroup) modalUrlGroup.classList.add("hidden");
       if (modalKeyGroup) modalKeyGroup.classList.remove("hidden");
-      // Hide model list container when switching to non-custom provider
-      const modalModelListContainer = document.getElementById("modal-model-list-container");
-      if (modalModelListContainer) modalModelListContainer.classList.add("hidden");
+      // Hide sync button for non-custom providers
+      const modalSyncBtn = document.getElementById("modal-sync-models-btn");
+      if (modalSyncBtn) modalSyncBtn.classList.add("hidden");
     }
   }
 
@@ -1053,9 +1097,6 @@ function setupEventListeners() {
     if (modalModelName) modalModelName.value = providerDefaultModels.gemini;
     if (modalModelLabel) modalModelLabel.value = "";
     if (modalStatus) { modalStatus.textContent = ""; modalStatus.className = "settings-status"; }
-    // Hide model list container when opening modal in add mode
-    const modalModelListContainer = document.getElementById("modal-model-list-container");
-    if (modalModelListContainer) modalModelListContainer.classList.add("hidden");
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   }
 
@@ -1072,9 +1113,6 @@ function setupEventListeners() {
     if (modalModelName) modalModelName.value = model.model || "";
     if (modalModelLabel) modalModelLabel.value = model.label || "";
     if (modalStatus) { modalStatus.textContent = ""; modalStatus.className = "settings-status"; }
-    // Hide model list container when opening modal in edit mode
-    const modalModelListContainer = document.getElementById("modal-model-list-container");
-    if (modalModelListContainer) modalModelListContainer.classList.add("hidden");
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   };
 
@@ -1437,6 +1475,7 @@ function setupEventListeners() {
       const selectedOption = ruleProviderSelect.options[ruleProviderSelect.selectedIndex];
       const provider = selectedOption.dataset.provider || "gemini";
       const model = selectedOption.dataset.modelName || "";
+      const modelConfigId = selectedOption.value; // Store the actual ID from configuredApiModels
       
       if (!provider || !model) {
         alert("请选择有效的模型");
@@ -1448,6 +1487,7 @@ function setupEventListeners() {
         pattern: rulePattern,
         provider: provider,
         model: model,
+        modelConfigId: modelConfigId, // Persist the link to specific configuration
         cwd: provider.endsWith("-agent") ? ruleCwd : "",
         enabled: true
       };
@@ -1512,16 +1552,6 @@ function renderModelSelection(provider, selectedValue) {
   const predefined = providerModels[provider] || [];
   const added = addedProviderModels[provider] || [];
   const allModels = [...predefined, ...added];
-
-  // If we have custom sync button, toggle its visibility in the header actions block
-  const syncBtn = document.getElementById("modal-sync-models-btn");
-  if (syncBtn) {
-    if (provider === "custom") {
-      syncBtn.classList.remove("hidden");
-    } else {
-      syncBtn.classList.add("hidden");
-    }
-  }
 
   if (allModels.length === 0) {
     const emptyMsg = document.createElement("div");
@@ -1634,7 +1664,6 @@ async function handleFetchCustomModels() {
   if (syncBtn) {
     syncBtn.classList.add("loading");
     syncBtn.disabled = true;
-    syncBtn.querySelector("span").textContent = "正在同步...";
   }
   
   if (modalStatus) {
@@ -1699,7 +1728,6 @@ async function handleFetchCustomModels() {
   if (syncBtn) {
     syncBtn.classList.remove("loading");
     syncBtn.disabled = false;
-    syncBtn.querySelector("span").textContent = "同步可用模型";
   }
   
   if (success && fetchedList.length > 0) {
@@ -1724,36 +1752,48 @@ async function handleFetchCustomModels() {
     
     renderModelSelection("custom", modelToSelect);
     
-    // Display fetched models in the modal list for quick selection
-    const modalModelList = document.getElementById("modal-model-list");
-    const modalModelListContainer = document.getElementById("modal-model-list-container");
+    // Display fetched models in the modal select for compact selection
+    const modalModelNameInput = document.getElementById("modal-model-name");
+    const modalModelSelect = document.getElementById("modal-model-select");
     
-    if (modalModelList && modalModelListContainer) {
-      modalModelList.innerHTML = "";
+    if (modalModelSelect && modalModelNameInput) {
+      modalModelSelect.innerHTML = "";
       
+      // Add manual entry option
+      const manualOption = document.createElement("option");
+      manualOption.value = "__manual__";
+      manualOption.textContent = "🖊️ 手动输入...";
+      modalModelSelect.appendChild(manualOption);
+
       fetchedList.forEach(modelName => {
-        const item = document.createElement("div");
-        item.className = "modal-model-item";
-        if (modelName === modelToSelect) {
-          item.classList.add("active");
-        }
-        item.textContent = modelName;
-        
-        item.addEventListener("click", () => {
-          // Update the model name field
-          document.getElementById("modal-model-name").value = modelName;
-          
-          // Update active state
-          modalModelList.querySelectorAll(".modal-model-item").forEach(el => {
-            el.classList.remove("active");
-          });
-          item.classList.add("active");
-        });
-        
-        modalModelList.appendChild(item);
+        const opt = document.createElement("option");
+        opt.value = modelName;
+        opt.textContent = modelName;
+        if (modelName === modelToSelect) opt.selected = true;
+        modalModelSelect.appendChild(opt);
       });
       
-      modalModelListContainer.classList.remove("hidden");
+      // Update the input value immediately
+      modalModelNameInput.value = modelToSelect;
+      
+      // Switch visibility
+      modalModelNameInput.classList.add("hidden");
+      modalModelSelect.classList.remove("hidden");
+
+      // Add listener if not already added
+      if (!modalModelSelect.dataset.listenerAdded) {
+        modalModelSelect.addEventListener("change", (e) => {
+          if (e.target.value === "__manual__") {
+            modalModelSelect.classList.add("hidden");
+            modalModelNameInput.classList.remove("hidden");
+            modalModelNameInput.focus();
+            // Reset to current value or empty
+          } else {
+            modalModelNameInput.value = e.target.value;
+          }
+        });
+        modalModelSelect.dataset.listenerAdded = "true";
+      }
     }
     
     if (modalStatus) {
@@ -1761,12 +1801,6 @@ async function handleFetchCustomModels() {
       modalStatus.className = "settings-status success";
     }
   } else {
-    // Hide the model list container if sync fails
-    const modalModelListContainer = document.getElementById("modal-model-list-container");
-    if (modalModelListContainer) {
-      modalModelListContainer.classList.add("hidden");
-    }
-    
     if (modalStatus) {
       modalStatus.textContent = `✗ 同步失败：${lastError}`;
       modalStatus.className = "settings-status error";
@@ -2095,12 +2129,38 @@ async function handleNewSelection(selection, isNewInteraction = false) {
   }
 }
 
+async function syncRuntimeSettingsForTab(tabId) {
+  // 1) Start from currently selected active model.
+  applyActiveModelToAppSettings();
+
+  if (!tabId) return;
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab || !tab.url) return;
+
+    // 2) Overlay URL rule match if any.
+    const matchedRule = findMatchingRule(tab.url);
+    if (matchedRule) {
+      applyRuleSettings(matchedRule);
+    }
+
+    // 3) Temporary per-tab override has highest priority.
+    applyTemporaryModelOverrideForTab(tabId);
+  } catch (e) {
+    console.warn("Failed to sync runtime settings for tab before send:", e);
+  }
+}
+
 // Send user message
 async function handleSendMessage() {
   const text = chatInput.value.trim();
   if (!text) return;
 
   const messageTabId = currentTabId; // Capture current tab ID at the start
+
+  // Ensure runtime settings are consistent before any request is built/sent.
+  await syncRuntimeSettingsForTab(messageTabId);
 
   // Clear input area immediately
   chatInput.value = "";
@@ -2531,6 +2591,13 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     } else if (apiProvider === "openai" || apiProvider === "custom") {
       const url = apiProvider === "openai" ? "https://api.openai.com/v1/chat/completions" : `${apiUrl}/chat/completions`;
       
+      console.log("[DEBUG] Sending request to OpenAI-compatible API:", {
+        url,
+        apiProvider,
+        modelName,
+        hasApiKey: !!apiKey
+      });
+
       const headers = { "Content-Type": "application/json" };
       if (apiProvider === "openai" && apiKey) {
         headers["Authorization"] = `Bearer ${apiKey}`;
@@ -2738,6 +2805,13 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Stream via local Node Bridge
       const url = `${apiUrl}/api/chat`;
       
+      console.log("[DEBUG] Sending request to local agent:", {
+        url,
+        apiProvider,
+        effectiveCwd: effectiveCwd || "(none)",
+        claudePath: (appSettings.claudePath || "").substring(0, 20) + "..."
+      });
+
       let promptToSend = promptText;
       if (chatHistory.length > 2) {
         let historyPrompt = "You are working in a multi-turn session. Here is the conversation history so far for your reference:\n\n";
@@ -3589,6 +3663,8 @@ function matchUrlPattern(url, pattern) {
 
 // Override appSettings dynamically with matched rule configuration
 function applyRuleSettings(rule) {
+  console.log("[DEBUG] Applying rule settings:", rule.name, rule.provider, rule.model, "ConfigID:", rule.modelConfigId);
+
   if (!defaultSettingsBackup) {
     // Safety fallback
     defaultSettingsBackup = {
@@ -3603,30 +3679,56 @@ function applyRuleSettings(rule) {
     };
   }
   
-  // Override active provider and model
-  appSettings.apiProvider = rule.provider;
-  appSettings.modelName = rule.model;
-  
-  // Initialize provider properties
-  const savedProvConfig = defaultSettingsBackup.providers[rule.provider] || {};
-  appSettings.providers[rule.provider] = {
-    ...appSettings.providers[rule.provider],
-    modelName: rule.model
-  };
-  
-  // Handle Claude Agent CWD overrides
-  if (rule.provider.endsWith("-agent")) {
-    appSettings.cwd = rule.cwd || savedProvConfig.cwd || "";
-    if (appSettings.providers[rule.provider]) {
-      appSettings.providers[rule.provider].cwd = rule.cwd || savedProvConfig.cwd || "";
+  // High priority: Try to resolve all settings from the specific modelConfigId if available
+  let resolvedFromConfig = false;
+  if (rule.modelConfigId) {
+    const config = configuredApiModels.find(m => m.id === rule.modelConfigId);
+    if (config) {
+      console.log("[DEBUG] Successfully matched specific model config for rule:", config.label);
+      appSettings.apiProvider = config.provider;
+      appSettings.modelName = config.model;
+      appSettings.apiKey = config.apiKey || "";
+      appSettings.apiUrl = config.apiUrl || "";
+      appSettings.claudePath = "";
+      
+      // Update provider map too
+      if (!appSettings.providers[config.provider]) appSettings.providers[config.provider] = {};
+      appSettings.providers[config.provider].apiKey = config.apiKey || "";
+      appSettings.providers[config.provider].apiUrl = config.apiUrl || "";
+      appSettings.providers[config.provider].modelName = config.model;
+      
+      resolvedFromConfig = true;
+    }
+  }
+
+  if (!resolvedFromConfig) {
+    // Fallback to old behavior (matching by provider + searching provider defaults)
+    const matchingConfig = configuredApiModels.find(m => m.provider === rule.provider && m.model === rule.model);
+    if (matchingConfig) {
+       appSettings.apiProvider = matchingConfig.provider;
+       appSettings.modelName = matchingConfig.model;
+       appSettings.apiKey = matchingConfig.apiKey || "";
+       appSettings.apiUrl = matchingConfig.apiUrl || "";
+    } else {
+       appSettings.apiProvider = rule.provider;
+       appSettings.modelName = rule.model;
     }
   }
   
-  // Populate easy-lookup settings properties
-  appSettings.apiKey = savedProvConfig.apiKey || "";
-  appSettings.apiUrl = savedProvConfig.apiUrl || "";
-  appSettings.claudePath = savedProvConfig.claudePath || "";
+  // Handle Claude Agent CWD overrides
+  if (rule.provider.endsWith("-agent")) {
+    appSettings.cwd = rule.cwd || "";
+    // Merge bridge default if needed
+    if (!appSettings.apiUrl) appSettings.apiUrl = DEFAULT_BRIDGE_URL;
+  }
   
+  console.log("[DEBUG] Post-rule settings:", {
+    apiProvider: appSettings.apiProvider,
+    apiUrl: appSettings.apiUrl,
+    modelName: appSettings.modelName,
+    hasApiKey: !!appSettings.apiKey
+  });
+
   updateStatusUI();
   
   // Show match indicator banner
@@ -3641,17 +3743,21 @@ function applyRuleSettings(rule) {
 
 // Restore user default settings when leaving matching domains
 function restoreDefaultSettings() {
-  if (!defaultSettingsBackup) return;
+  console.log("[DEBUG] Restoring default settings...");
+  // Always restore from the current active model id, instead of relying on a
+  // potentially stale backup snapshot.
+  if (defaultSettingsBackup && defaultSettingsBackup.temperature !== undefined) {
+    appSettings.temperature = defaultSettingsBackup.temperature;
+  }
+
+  applyActiveModelToAppSettings();
   
-  appSettings.apiProvider = defaultSettingsBackup.apiProvider;
-  appSettings.temperature = defaultSettingsBackup.temperature;
-  appSettings.apiKey = defaultSettingsBackup.apiKey;
-  appSettings.apiUrl = defaultSettingsBackup.apiUrl;
-  appSettings.modelName = defaultSettingsBackup.modelName;
-  appSettings.cwd = defaultSettingsBackup.cwd;
-  appSettings.claudePath = defaultSettingsBackup.claudePath;
-  appSettings.providers = JSON.parse(JSON.stringify(defaultSettingsBackup.providers));
-  
+  console.log("[DEBUG] Post-restore settings:", {
+    apiProvider: appSettings.apiProvider,
+    apiUrl: appSettings.apiUrl,
+    modelName: appSettings.modelName
+  });
+
   updateStatusUI();
   
   const banner = document.getElementById("rule-match-banner");
@@ -3869,17 +3975,29 @@ function openRuleEditor(index = null) {
     // Try to find and select the matching model
     const ruleProviderSelect = document.getElementById("rule-provider");
     if (ruleProviderSelect) {
-      // Look for a model that matches the saved rule provider/model
       let found = false;
-      for (let i = 0; i < ruleProviderSelect.options.length; i++) {
-        const opt = ruleProviderSelect.options[i];
-        if (opt.dataset.provider === rule.provider && opt.dataset.modelName === rule.model) {
-          ruleProviderSelect.selectedIndex = i;
-          found = true;
-          break;
+      // 1. First try to match by exact modelConfigId
+      if (rule.modelConfigId) {
+        for (let i = 0; i < ruleProviderSelect.options.length; i++) {
+          if (ruleProviderSelect.options[i].value === rule.modelConfigId) {
+            ruleProviderSelect.selectedIndex = i;
+            found = true;
+            break;
+          }
         }
       }
-      // If not found, try to match by just provider
+      // 2. Fallback: match by provider and model name
+      if (!found) {
+        for (let i = 0; i < ruleProviderSelect.options.length; i++) {
+          const opt = ruleProviderSelect.options[i];
+          if (opt.dataset.provider === rule.provider && opt.dataset.modelName === rule.model) {
+            ruleProviderSelect.selectedIndex = i;
+            found = true;
+            break;
+          }
+        }
+      }
+      // 3. Last fallback: match by provider only
       if (!found) {
         for (let i = 0; i < ruleProviderSelect.options.length; i++) {
           const opt = ruleProviderSelect.options[i];
