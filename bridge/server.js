@@ -224,7 +224,8 @@ const server = http.createServer((req, res) => {
            else if (agentId === 'gemini-agent') agentName = "Gemini CLI";
         }
         
-        console.log(`🤖 [ContextLens Bridge] Spawning ${agentName} in CWD: ${cwd || process.cwd()}`);
+        const runCwd = (typeof cwd === 'string' && cwd.trim()) ? cwd.trim() : os.homedir();
+        console.log(`🤖 [ContextLens Bridge] Spawning ${agentName} in CWD: ${runCwd}`);
         console.log(`🤖 [ContextLens Bridge] Executable: ${executablePath}`);
 
         // Build args based on agent type — each CLI has its own interface
@@ -235,7 +236,7 @@ const server = http.createServer((req, res) => {
             'exec',
             '--json',
             '--dangerously-bypass-approvals-and-sandbox',
-            '-C', cwd || process.cwd(),
+            '-C', runCwd,
             prompt
           ];
         } else if (agentId === 'gemini-agent') {
@@ -262,7 +263,7 @@ const server = http.createServer((req, res) => {
           executablePath,
           spawnArgs,
           {
-            cwd: cwd || process.cwd(),
+            cwd: runCwd,
             stdio: ['pipe', 'pipe', 'pipe'],
             env: {
               ...process.env,

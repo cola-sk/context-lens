@@ -56,6 +56,7 @@ let addedProviderModels = {
 // Tab Isolation Cache
 let tabStates = {}; // tabId -> { currentContext, chatHistory, includeFullPageChecked }
 let currentTabId = null;
+let tabTemporaryModelOverrides = {}; // tabId -> { modelId, updatedAt }
 
 // Get or initialize state for a tab
 function getTabState(tabId) {
@@ -102,6 +103,36 @@ You are helping the user understand a snippet of text they selected on a website
 Provide explanations, code debugging, or answers in direct response to their selected text and any follow-up questions they have.
 Be concise, accurate, and focus directly on the context provided. Use markdown formatting for code blocks, lists, and bold text.`;
 
+function getContextImages(contextData, maxImages = 5) {
+  if (!contextData || !Array.isArray(contextData.images)) return [];
+  return contextData.images
+    .filter(img => img && typeof img.src === "string" && img.src.trim().length > 0)
+    .filter(img => !img.src.startsWith("data:"))
+    .slice(0, maxImages);
+}
+
+function buildImageContextBlock(images) {
+  if (!images || images.length === 0) return "";
+
+  let block = "\n[Images in Selection]\n";
+  images.forEach((img, idx) => {
+    const pieces = [`${idx + 1}. URL: ${img.src}`];
+    if (img.alt) pieces.push(`Alt: "${img.alt}"`);
+    if (img.title) pieces.push(`Title: "${img.title}"`);
+    if (img.width && img.height) pieces.push(`Size: ${img.width}x${img.height}`);
+    block += `${pieces.join(" | ")}\n`;
+  });
+  return block;
+}
+
+function supportsStructuredImageInput(provider, modelName) {
+  if (provider !== "openai") return false;
+  const model = (modelName || "").toLowerCase();
+  if (!model) return false;
+
+  return /gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|vision|omni/.test(model);
+}
+
 // DOM Elements
 const welcomeScreen = document.getElementById("welcome-screen");
 const configureNowBtn = document.getElementById("configure-now-btn");
@@ -114,6 +145,10 @@ const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
 const connectionStatusPill = document.getElementById("connection-status-pill");
 const connectedModelName = document.getElementById("connected-model-name");
+const modelQuickPopover = document.getElementById("model-quick-popover");
+const modelQuickCloseBtn = document.getElementById("model-quick-close");
+const modelQuickCurrentDomain = document.getElementById("model-quick-current-domain");
+const modelQuickList = document.getElementById("model-quick-list");
 
 // Settings Drawer DOM
 const settingsToggle = document.getElementById("settings-toggle");
@@ -404,6 +439,245 @@ function refreshLocalAgentsAsync() {
     if (modelCardsStatus) modelCardsStatus.textContent = "Bridge 未连接";
     renderAvailableModelCards();
   });
+}
+
+function getAllModelChoices() {
+  const choices = [];
+
+  detectedLocalAgents
+    .filter(agent => agent && agent.available)
+    .forEach((agent) => {
+      choices.push({
+        id: agent.id,
+        type: "local",
+        provider: agent.id,
+        model: agent.id,
+        label: agent.label || agent.id,
+        meta: agent.version ? `v${agent.version} · 本地 Agent` : "本地 Agent",
+        executablePath: agent.executablePath || ""
+      });
+    });
+
+  configuredApiModels.forEach((model) => {
+    choices.push({
+      id: model.id,
+      type: "api",
+      provider: model.provider,
+      model: model.model,
+      label: model.label || model.model,
+      meta: `${model.provider.toUpperCase()} API`,
+      apiKey: model.apiKey || "",
+      apiUrl: model.apiUrl || ""
+    });
+  });
+
+  return choices;
+}
+
+function resolveModelChoiceById(modelId) {
+  if (!modelId) return null;
+  return getAllModelChoices().find(choice => choice.id === modelId) || null;
+}
+
+function applyModelChoiceToAppSettings(choice) {
+  if (!choice) return false;
+
+  if (choice.type === "api") {
+    appSettings.apiProvider = choice.provider;
+    appSettings.apiKey = choice.apiKey || "";
+    appSettings.apiUrl = choice.apiUrl || "";
+    appSettings.modelName = choice.model || "";
+    appSettings.cwd = "";
+    appSettings.claudePath = "";
+
+    if (appSettings.providers[choice.provider]) {
+      appSettings.providers[choice.provider].apiKey = choice.apiKey || "";
+      appSettings.providers[choice.provider].apiUrl = choice.apiUrl || "";
+      appSettings.providers[choice.provider].modelName = choice.model || "";
+    }
+  } else {
+    const provCfg = defaultSettingsBackup?.providers?.[choice.provider] || appSettings.providers[choice.provider] || {};
+
+    appSettings.apiProvider = choice.provider;
+    appSettings.apiKey = "";
+    appSettings.apiUrl = DEFAULT_BRIDGE_URL;
+    appSettings.modelName = choice.model;
+    appSettings.cwd = provCfg.cwd || "";
+    appSettings.claudePath = provCfg.claudePath || choice.executablePath || "";
+
+    if (appSettings.providers[choice.provider]) {
+      appSettings.providers[choice.provider].modelName = choice.model;
+      appSettings.providers[choice.provider].apiUrl = DEFAULT_BRIDGE_URL;
+      appSettings.providers[choice.provider].cwd = appSettings.cwd;
+      appSettings.providers[choice.provider].claudePath = appSettings.claudePath;
+    }
+  }
+
+  updateStatusUI();
+  return true;
+}
+
+function applyTemporaryModelOverrideForTab(tabId) {
+  if (!tabId || !tabTemporaryModelOverrides[tabId]) return false;
+
+  const override = tabTemporaryModelOverrides[tabId];
+  const choice = resolveModelChoiceById(override.modelId);
+  if (!choice) {
+    delete tabTemporaryModelOverrides[tabId];
+    return false;
+  }
+
+  return applyModelChoiceToAppSettings(choice);
+}
+
+function getDomainPatternFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname) return "*";
+    return `*${parsed.hostname}/*`;
+  } catch (e) {
+    return "*";
+  }
+}
+
+function openRuleEditorWithPreset(preset) {
+  toggleDrawer(true);
+
+  const tabGeneral = document.getElementById("tab-general");
+  const tabRules = document.getElementById("tab-rules");
+  const panelGeneral = document.getElementById("panel-general");
+  const panelRules = document.getElementById("panel-rules");
+  if (tabGeneral && tabRules && panelGeneral && panelRules) {
+    tabRules.classList.add("active");
+    tabGeneral.classList.remove("active");
+    panelRules.classList.remove("hidden");
+    panelGeneral.classList.add("hidden");
+  }
+
+  const existingIndex = urlSwitchRules.findIndex(rule => rule.pattern === preset.pattern);
+  openRuleEditor(existingIndex >= 0 ? existingIndex : null);
+
+  const ruleName = document.getElementById("rule-name");
+  const rulePattern = document.getElementById("rule-pattern");
+  const ruleProvider = document.getElementById("rule-provider");
+  const ruleCwd = document.getElementById("rule-cwd");
+
+  if (ruleName) ruleName.value = preset.name || "";
+  if (rulePattern) rulePattern.value = preset.pattern || "*";
+  if (ruleProvider) {
+    ruleProvider.value = preset.provider || "gemini";
+    toggleRuleCwdGroup(ruleProvider.value);
+  }
+
+  renderRuleModelSelection(preset.provider || "gemini", preset.model || "");
+  if (ruleCwd) ruleCwd.value = preset.cwd || "";
+}
+
+function closeModelQuickPopover() {
+  if (modelQuickPopover) {
+    modelQuickPopover.classList.add("hidden");
+  }
+}
+
+async function openModelQuickPopover() {
+  if (!modelQuickPopover || !modelQuickList) return;
+
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = tabs[0];
+  if (!tab) return;
+
+  const allChoices = getAllModelChoices();
+  const currentOverrideModelId = tabTemporaryModelOverrides[tab.id]?.modelId || null;
+  const activeSignature = `${appSettings.apiProvider}::${appSettings.modelName}`;
+  const domain = (() => {
+    try {
+      return new URL(tab.url || "").hostname || (tab.url || "当前页面");
+    } catch (e) {
+      return tab.url || "当前页面";
+    }
+  })();
+
+  if (modelQuickCurrentDomain) {
+    modelQuickCurrentDomain.textContent = domain;
+    modelQuickCurrentDomain.title = tab.url || "";
+  }
+
+  modelQuickList.innerHTML = "";
+
+  if (currentOverrideModelId) {
+    const restoreRow = document.createElement("div");
+    restoreRow.className = "model-quick-row";
+    restoreRow.innerHTML = `
+      <div class="model-quick-row-main">
+        <div class="model-quick-row-title">恢复正式规则模型</div>
+        <div class="model-quick-row-sub">撤销当前页面临时模型，回到 URL 规则或默认模型</div>
+      </div>
+      <div class="model-quick-row-actions">
+        <button type="button" class="model-quick-btn restore-btn">恢复</button>
+      </div>
+    `;
+    const restoreBtn = restoreRow.querySelector(".restore-btn");
+    restoreBtn.addEventListener("click", async () => {
+      delete tabTemporaryModelOverrides[tab.id];
+      await applyUrlSwitchingForTab(tab);
+      closeModelQuickPopover();
+    });
+    modelQuickList.appendChild(restoreRow);
+  }
+
+  if (allChoices.length === 0) {
+    modelQuickList.innerHTML += `<div class="model-quick-empty">暂无可切换模型，请先在基本配置中添加模型。</div>`;
+    modelQuickPopover.classList.remove("hidden");
+    return;
+  }
+
+  allChoices.forEach((choice) => {
+    const row = document.createElement("div");
+    const choiceSignature = `${choice.provider}::${choice.model}`;
+    const isCurrent = currentOverrideModelId
+      ? currentOverrideModelId === choice.id
+      : choiceSignature === activeSignature;
+
+    row.className = `model-quick-row${isCurrent ? " current" : ""}`;
+    row.innerHTML = `
+      <div class="model-quick-row-main">
+        <div class="model-quick-row-title">${escapeHTML(choice.label)}</div>
+        <div class="model-quick-row-sub">${escapeHTML(choice.meta || choice.model)}</div>
+      </div>
+      <div class="model-quick-row-actions">
+        <button type="button" class="model-quick-btn switch-btn" data-model-id="${choice.id}" ${isCurrent ? "disabled" : ""}>${isCurrent ? "当前" : "本页临时切换"}</button>
+        <button type="button" class="model-quick-btn rule-btn" data-model-id="${choice.id}">建域名规则</button>
+      </div>
+    `;
+
+    const switchBtn = row.querySelector(".switch-btn");
+    const ruleBtn = row.querySelector(".rule-btn");
+
+    switchBtn.addEventListener("click", () => {
+      tabTemporaryModelOverrides[tab.id] = { modelId: choice.id, updatedAt: Date.now() };
+      applyTemporaryModelOverrideForTab(tab.id);
+      closeModelQuickPopover();
+    });
+
+    ruleBtn.addEventListener("click", () => {
+      const cwdDefault = choice.provider.endsWith("-agent")
+        ? (appSettings.providers[choice.provider]?.cwd || appSettings.cwd || "")
+        : "";
+
+      openRuleEditorWithPreset({
+        name: `${domain} · ${choice.label}`,
+        pattern: getDomainPatternFromUrl(tab.url || ""),
+        provider: choice.provider,
+        model: choice.model,
+        cwd: cwdDefault
+      });
+      closeModelQuickPopover();
+    });
+
+    modelQuickList.appendChild(row);
+  });
+
+  modelQuickPopover.classList.remove("hidden");
 }
 
 
@@ -1051,6 +1325,33 @@ function setupEventListeners() {
     });
   }
 
+  if (connectionStatusPill && modelQuickPopover) {
+    connectionStatusPill.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!modelQuickPopover.classList.contains("hidden")) {
+        closeModelQuickPopover();
+        return;
+      }
+      await openModelQuickPopover();
+    });
+  }
+
+  if (modelQuickCloseBtn) {
+    modelQuickCloseBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeModelQuickPopover();
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!modelQuickPopover || modelQuickPopover.classList.contains("hidden")) return;
+    const clickedInsidePopover = modelQuickPopover.contains(e.target);
+    const clickedPill = connectionStatusPill && connectionStatusPill.contains(e.target);
+    if (!clickedInsidePopover && !clickedPill) {
+      closeModelQuickPopover();
+    }
+  });
+
   // Rules Manager Event Handlers
   const addRuleBtn = document.getElementById("add-rule-btn");
   const closeEditorBtn = document.getElementById("close-editor-btn");
@@ -1432,42 +1733,28 @@ function parseFetchedModels(responseJson) {
 function updateStatusUI() {
   const cwdWarningBanner = document.getElementById("cwd-warning-banner");
   const isLocalAgent = appSettings.apiProvider.endsWith("-agent");
-  const hasModel = !!(activeModelId && appSettings.modelName);
+  const hasModel = !!appSettings.modelName;
   const hasKey = appSettings.apiKey || isLocalAgent || appSettings.apiProvider === "custom";
   
   if (hasModel && (hasKey || isLocalAgent)) {
-    if (isLocalAgent && !appSettings.cwd) {
-      connectionStatusPill.className = "status-pill offline";
-      connectedModelName.textContent = "未配置本地目录";
-      
-      chatInput.disabled = true;
-      chatInput.placeholder = "本地 Agent 需指定工作目录，请先创建规则...";
-      sendBtn.disabled = true;
-      
-      if (cwdWarningBanner) cwdWarningBanner.classList.remove("hidden");
+    connectionStatusPill.className = "status-pill online";
+    
+    let displayName = appSettings.modelName;
+    if (isLocalAgent) {
+      const agentLabel = (detectedLocalAgents.find(a => a.id === appSettings.apiProvider) || {}).label || appSettings.modelName;
+      displayName = agentLabel;
     } else {
-      connectionStatusPill.className = "status-pill online";
-      
-      let displayName = appSettings.modelName;
-      if (isLocalAgent) {
-        const agentLabel = (detectedLocalAgents.find(a => a.id === appSettings.apiProvider) || {}).label || appSettings.modelName;
-        displayName = agentLabel;
-      } else {
-        const cfgModel = configuredApiModels.find(m => m.id === activeModelId);
-        if (cfgModel && cfgModel.provider === appSettings.apiProvider) {
-          displayName = cfgModel.label || cfgModel.model;
-        } else {
-          displayName = appSettings.modelName;
-        }
-      }
-      connectedModelName.textContent = displayName;
-      
-      chatInput.disabled = false;
-      chatInput.placeholder = "针对所选上下文进行提问... (Ctrl + Enter 发送)";
-      sendBtn.disabled = false;
-      
-      if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
+      // Always show the effective model name (including URL-rule or temporary overrides).
+      displayName = appSettings.modelName;
     }
+
+    connectedModelName.textContent = displayName;
+    
+    chatInput.disabled = false;
+    chatInput.placeholder = "针对所选上下文进行提问... (Ctrl + Enter 发送)";
+    sendBtn.disabled = false;
+    
+    if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
   } else {
     connectionStatusPill.className = "status-pill offline";
     connectedModelName.textContent = hasModel ? "未配置 API 密钥" : "未配置 AI 模型";
@@ -1477,6 +1764,14 @@ function updateStatusUI() {
     sendBtn.disabled = true;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
+  }
+
+  const hasTemporaryOverride = !!(currentTabId && tabTemporaryModelOverrides[currentTabId]);
+  connectionStatusPill.classList.toggle("temporary", hasTemporaryOverride);
+  if (hasTemporaryOverride) {
+    if (!connectedModelName.textContent.endsWith("（临时）")) {
+      connectedModelName.textContent = `${connectedModelName.textContent}（临时）`;
+    }
   }
 }
 
@@ -1761,15 +2056,39 @@ async function handleSendMessage() {
 
   // Send request to AI
   let fullPrompt = text;
-  
+
+  // Determine cwd strictly from URL rule matching.
+  // Only when the current page matches an enabled agent rule should we pass a workspace path to local CLI agents.
+  const _isAgentProvider = appSettings.apiProvider.endsWith("-agent");
+  let _pageUrl = (currentContext && currentContext.pageUrl) ? currentContext.pageUrl : "";
+  if (!_pageUrl && messageTabId) {
+    try {
+      const tab = await chrome.tabs.get(messageTabId);
+      _pageUrl = tab && tab.url ? tab.url : "";
+    } catch {}
+  }
+
+  const matchedRuleForRequest = _pageUrl ? findMatchingRule(_pageUrl) : null;
+  const matchedRuleCwd = matchedRuleForRequest && matchedRuleForRequest.provider === appSettings.apiProvider
+    ? (matchedRuleForRequest.cwd || "").trim()
+    : "";
+  const effectiveCwd = _isAgentProvider && matchedRuleCwd ? matchedRuleCwd : "";
+
   // If we have selected text context, prepend/attach it
   if (currentContext && chatHistory.length === 1) {
     const cd = currentContext.contextData;
     if (cd) {
-      if (appSettings.apiProvider.endsWith("-agent")) {
+      const contextImages = getContextImages(cd, 5);
+      if (appSettings.apiProvider.endsWith("-agent") && effectiveCwd) {
+        // Agent mode: only for local/dev pages with workspace configured
+          const workspaceHeader = `You are a local agentic coding assistant running directly in the user's project workspace folder: ${effectiveCwd}.`;
+          const targetCodebaseLine = "Your goal is to search the local workspace codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.";
+          const step1 = `1. Search the local workspace codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) that contains the selected UI text "${cd.selectedText}" or matches this surrounding context.`;
+          const step2 = `2. Edit the file directly in the local workspace codebase to perform the user's instructions: "${text}".`;
+
         // Specialized agentic instructions for codebase edits
-        fullPrompt = `You are a local agentic coding assistant running directly in the user's project CWD workspace folder: ${appSettings.cwd || "current folder"}.
-The user is viewing a web page and selected a specific element/text. Your goal is to search the local CWD codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.
+          fullPrompt = `${workspaceHeader}
+The user is viewing a web page and selected a specific element/text. ${targetCodebaseLine}
 
 [Page Context]
 Title: ${currentContext.pageTitle}
@@ -1805,6 +2124,8 @@ The user highlighted the following specific cell text:
 `;
         }
 
+        fullPrompt += buildImageContextBlock(contextImages);
+
         // Append simplified full-page context if checkbox is checked
         const includeFullPageToggle = document.getElementById("include-full-page-context");
         if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
@@ -1816,8 +2137,8 @@ The user highlighted the following specific cell text:
 ${text}
 
 [Goal & Execution Steps]
-1. Search the CWD codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) that contains the selected UI text "${cd.selectedText}" or matches this surrounding context.
-2. Edit the file directly in the local CWD codebase to perform the user's instructions: "${text}".
+${step1}
+${step2}
 3. Verify your changes and output a concise summary of the changes and the git diff.
 `;
       } else {
@@ -1863,6 +2184,8 @@ The user highlighted the following specific cell text:
 `;
         }
 
+        fullPrompt += buildImageContextBlock(contextImages);
+
         // Append simplified full-page context if checkbox is checked
         const includeFullPageToggle = document.getElementById("include-full-page-context");
         if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
@@ -1873,9 +2196,15 @@ The user highlighted the following specific cell text:
       }
     } else {
       // Basic context fallback
-      if (appSettings.apiProvider.endsWith("-agent")) {
-        fullPrompt = `You are a local agentic coding assistant running directly in the user's project CWD workspace folder: ${appSettings.cwd || "current folder"}.
-The user is viewing a web page and selected a specific element/text. Your goal is to search the CWD codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.
+      if (appSettings.apiProvider.endsWith("-agent") && effectiveCwd) {
+        // Agent mode: only for local/dev pages with workspace configured
+        const workspaceHeader = `You are a local agentic coding assistant running directly in the user's project workspace folder: ${effectiveCwd}.`;
+        const targetCodebaseLine = "The user is viewing a web page and selected a specific element/text. Your goal is to search the local workspace codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.";
+        const step1 = `1. Search the local workspace codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) containing the selected UI text "${currentContext.text}".`;
+        const step2 = `2. Edit the file directly in the local workspace codebase to perform the user's instructions: "${text}".`;
+
+        fullPrompt = `${workspaceHeader}
+${targetCodebaseLine}
 
 Page Title: ${currentContext.pageTitle}
 Page URL: ${currentContext.pageUrl}
@@ -1885,8 +2214,8 @@ Selected Snippet: "${currentContext.text}"
 ${text}
 
 [Goal & Execution Steps]
-1. Search the CWD codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) containing the selected UI text "${currentContext.text}".
-2. Edit the file directly in the local CWD codebase to perform the user's instructions: "${text}".
+${step1}
+${step2}
 3. Verify your changes and output a concise summary of the changes and the git diff.`;
       } else {
         fullPrompt = `You are helping the user analyze a webpage snippet.
@@ -1914,7 +2243,7 @@ User Question: ${text}`;
     }
   }
 
-  await triggerAIStreamResponse(fullPrompt, messageTabId);
+  await triggerAIStreamResponse(fullPrompt, messageTabId, effectiveCwd);
 }
 
 // Append a bubble element to the chat stream
@@ -1953,7 +2282,7 @@ function scrollToBottom() {
 }
 
 // Unified Streaming Handler
-async function triggerAIStreamResponse(promptText, messageTabId) {
+async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = "") {
   const targetTabId = messageTabId || currentTabId;
 
   // If a reader is active, abort it
@@ -2003,6 +2332,8 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
 
   try {
     const { apiProvider, apiKey, apiUrl, modelName, temperature } = appSettings;
+    const contextImages = getContextImages(currentContext?.contextData, 5);
+    const canUseStructuredImages = supportsStructuredImageInput(apiProvider, modelName);
     let response;
     let reader;
 
@@ -2154,7 +2485,25 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
 
       // Add existing chat logs (excluding the final assistant streaming bubble)
       for (let i = 0; i < chatHistory.length - 1; i++) {
-        messages.push({ role: chatHistory[i].role, content: chatHistory[i].content });
+        const msg = chatHistory[i];
+        const shouldEmbedImages = i === 0
+          && msg.role === "user"
+          && msg._contextEmbedded
+          && canUseStructuredImages
+          && contextImages.length > 0;
+
+        if (shouldEmbedImages) {
+          const contentParts = [{ type: "text", text: msg.content }];
+          contextImages.forEach((img) => {
+            contentParts.push({
+              type: "image_url",
+              image_url: { url: img.src }
+            });
+          });
+          messages.push({ role: msg.role, content: contentParts });
+        } else {
+          messages.push({ role: msg.role, content: msg.content });
+        }
       }
 
       response = await fetch(url, {
@@ -2340,7 +2689,7 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: promptToSend,
-          cwd: appSettings.cwd || "",
+          cwd: effectiveCwd,
           claudePath: appSettings.claudePath || "",
           agentId: apiProvider
         })
@@ -3008,6 +3357,8 @@ async function applyUrlSwitchingForTab(tab) {
   } else {
     restoreDefaultSettings();
   }
+
+  applyTemporaryModelOverrideForTab(tab.id);
 }
 
 // Find first active matched rule in rules list order (precedence)
@@ -3156,6 +3507,7 @@ function renderRulesList() {
   urlSwitchRules.forEach((rule, index) => {
     const card = document.createElement("div");
     card.className = `rule-card ${rule.enabled !== false ? "" : "disabled"}`;
+    card.dataset.index = String(index);
     
     let providerLabel = rule.provider;
     if (rule.provider === "gemini") providerLabel = "Gemini";
@@ -3178,13 +3530,16 @@ function renderRulesList() {
         </div>
       </div>
       <div class="rule-card-body">
-        <div class="rule-meta-row">
-          <span class="meta-label">供应商:</span>
-          <span class="meta-value">${providerLabel}</span>
-        </div>
-        <div class="rule-meta-row">
-          <span class="meta-label">模型:</span>
-          <span class="meta-value font-mono">${escapeHTML(rule.model)}</span>
+        <div class="rule-meta-inline">
+          <span class="meta-kv">
+            <span class="meta-key">供应商</span>
+            <span class="meta-val">${providerLabel}</span>
+          </span>
+          <span class="meta-separator">•</span>
+          <span class="meta-kv">
+            <span class="meta-key">模型</span>
+            <span class="meta-val font-mono">${escapeHTML(rule.model)}</span>
+          </span>
         </div>
         ${rule.cwd ? `
         <div class="rule-meta-row">
@@ -3287,6 +3642,19 @@ function bindRuleCardEvents() {
         await saveRulesToStorage();
         renderRulesList();
         await evaluateUrlSwitchingForActiveTab();
+      }
+    });
+  });
+
+  // Clicking the card body also opens edit mode, so edit is always reachable.
+  document.querySelectorAll(".rule-card").forEach(card => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button") || e.target.closest("input") || e.target.closest("label")) {
+        return;
+      }
+      const idx = parseInt(card.dataset.index || "", 10);
+      if (!Number.isNaN(idx)) {
+        openRuleEditor(idx);
       }
     });
   });
