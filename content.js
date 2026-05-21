@@ -167,6 +167,100 @@ function getSurroundingText(range, charLimit = 800) {
   return { before: "", after: "" };
 }
 
+function dedupeAndClampImages(images, maxImages = 5) {
+  const seen = new Set();
+  const results = [];
+
+  for (const img of images) {
+    if (!img || !img.src || seen.has(img.src)) continue;
+    seen.add(img.src);
+    results.push(img);
+    if (results.length >= maxImages) break;
+  }
+
+  return results;
+}
+
+function extractImageMeta(imgEl) {
+  if (!imgEl || imgEl.tagName !== "IMG") return null;
+
+  const src = (imgEl.currentSrc || imgEl.src || imgEl.getAttribute("src") || "").trim();
+  if (!src || src.startsWith("data:")) return null;
+  
+  // Analysis for a specific image description encountered:
+  // "[Image: 4-Day Sprint Timeline showing commit activity: Day 1 kickoff with 4 commits, Day 2 evening sprint with 12 commits, Day 3 with 43 commits including sidebar redesign disruption, Day 4 with 22 commits to finish and ship]"
+  //
+  // Analysis:
+  // *   Subject: A 4-day sprint timeline, visualizing commit activity over each day.
+  // *   Key Data Points:
+  //     *   Day 1: 4 commits (kickoff)
+  //     *   Day 2: 12 commits (evening sprint)
+  //     *   Day 3: 43 commits (highest activity, notably including a "sidebar redesign disruption")
+  //     *   Day 4: 22 commits (finish and ship)
+  // *   Interpretation: The image illustrates a development sprint with increasing commit activity up to Day 3,
+  //     which had a significant event ("sidebar redesign disruption") leading to the highest number of commits.
+  //     The sprint concludes on Day 4 with a final push to ship the product.
+  //     This suggests an agile development process with a focus on rapid iteration and deployment,
+  //     with potential challenges (like the redesign disruption) being overcome within the sprint.
+
+  return {
+    src,
+    alt: (imgEl.alt || "").trim(),
+    title: (imgEl.title || "").trim(),
+    width: imgEl.naturalWidth || imgEl.width || 0,
+    height: imgEl.naturalHeight || imgEl.height || 0
+  };
+}
+
+function extractImagesFromRange(range, maxImages = 5) {
+  if (!range) return [];
+
+  const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+    ? range.commonAncestorContainer.parentElement
+    : range.commonAncestorContainer;
+
+  if (!container) return [];
+
+  const candidates = [];
+
+  if (container.tagName === "IMG") {
+    const single = extractImageMeta(container);
+    if (single) candidates.push(single);
+  }
+
+  const imgs = container.querySelectorAll ? Array.from(container.querySelectorAll("img")) : [];
+  for (const img of imgs) {
+    try {
+      if (!range.intersectsNode(img)) continue;
+      const meta = extractImageMeta(img);
+      if (meta) candidates.push(meta);
+    } catch (e) {
+      // Skip nodes that cannot be intersection-tested.
+    }
+  }
+
+  return dedupeAndClampImages(candidates, maxImages);
+}
+
+function extractImagesFromElement(element, maxImages = 5) {
+  if (!element) return [];
+
+  const candidates = [];
+
+  if (element.tagName === "IMG") {
+    const single = extractImageMeta(element);
+    if (single) candidates.push(single);
+  }
+
+  const imgs = element.querySelectorAll ? Array.from(element.querySelectorAll("img")) : [];
+  for (const img of imgs) {
+    const meta = extractImageMeta(img);
+    if (meta) candidates.push(meta);
+  }
+
+  return dedupeAndClampImages(candidates, maxImages);
+}
+
 // Extract a highly simplified, token-efficient text extraction of the entire article/webpage
 function getFullPageSimplifiedText(maxChars = 6000) {
   try {
@@ -395,12 +489,14 @@ function showButtonAtSelection(selection) {
 
     // 3. Extract full page simplified text context
     const fullPageSimplified = getFullPageSimplifiedText(6000);
+    const images = extractImagesFromRange(range, 5);
 
     currentSelectionContext = {
       contentType: contentType,
       selectedText: currentSelectionText,
       surroundingBefore: surrounding.before,
       surroundingAfter: surrounding.after,
+      images: images,
       parentHeading: parentHeading ? `${parentHeading.tag}: ${parentHeading.text}` : "",
       codeBlock: enclosingCode, // { language, fullCode }
       tableBlock: enclosingTable, // Markdown string
@@ -475,12 +571,14 @@ function compileElementContext(element) {
 
     const semanticPath = buildSemanticPath(element);
     const fullPageSimplified = getFullPageSimplifiedText(6000);
+    const images = extractImagesFromElement(element, 5);
 
     return {
       contentType: contentType,
       selectedText: selectedText,
       surroundingBefore: surrounding.before,
       surroundingAfter: surrounding.after,
+      images: images,
       parentHeading: parentHeading ? `${parentHeading.tag}: ${parentHeading.text}` : "",
       codeBlock: enclosingCode,
       tableBlock: enclosingTable,

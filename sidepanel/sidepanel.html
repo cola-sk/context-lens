@@ -253,6 +253,19 @@
         <span class="pulse-indicator"></span>
         <span id="connected-model-name">未配置 AI 模型</span>
       </div>
+
+      <div id="model-quick-popover" class="model-quick-popover hidden">
+        <div class="model-quick-header">
+          <span class="model-quick-title">当前页面快速模型切换</span>
+          <button id="model-quick-close" type="button" class="model-quick-close">&times;</button>
+        </div>
+        <div class="model-quick-domain-row">
+          <span class="domain-label">域名</span>
+          <span id="model-quick-current-domain" class="domain-value">-</span>
+        </div>
+        <div id="model-quick-list" class="model-quick-list"></div>
+      </div>
+
       <div class="input-container">
         <textarea id="chat-input" placeholder="输入后续提问... (Ctrl + Enter 发送)" rows="1" disabled></textarea>
         <button id="send-btn" class="send-btn" disabled>
