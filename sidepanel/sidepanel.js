@@ -564,12 +564,6 @@ function openRuleEditorWithPreset(preset) {
 
   if (ruleName) ruleName.value = preset.name || "";
   if (rulePattern) rulePattern.value = preset.pattern || "*";
-  if (ruleProvider) {
-    ruleProvider.value = preset.provider || "gemini";
-    toggleRuleCwdGroup(ruleProvider.value);
-  }
-
-  renderRuleModelSelection(preset.provider || "gemini", preset.model || "");
   if (ruleCwd) ruleCwd.value = preset.cwd || "";
 }
 
@@ -1039,10 +1033,13 @@ function setupEventListeners() {
     if (modalModelHint) modalModelHint.textContent = providerHints[provider] || "";
     if (provider === "custom") {
       if (modalUrlGroup) modalUrlGroup.classList.remove("hidden");
-      if (modalKeyGroup) modalKeyGroup.classList.add("hidden");
+      if (modalKeyGroup) modalKeyGroup.classList.remove("hidden");
     } else {
       if (modalUrlGroup) modalUrlGroup.classList.add("hidden");
       if (modalKeyGroup) modalKeyGroup.classList.remove("hidden");
+      // Hide model list container when switching to non-custom provider
+      const modalModelListContainer = document.getElementById("modal-model-list-container");
+      if (modalModelListContainer) modalModelListContainer.classList.add("hidden");
     }
   }
 
@@ -1056,6 +1053,9 @@ function setupEventListeners() {
     if (modalModelName) modalModelName.value = providerDefaultModels.gemini;
     if (modalModelLabel) modalModelLabel.value = "";
     if (modalStatus) { modalStatus.textContent = ""; modalStatus.className = "settings-status"; }
+    // Hide model list container when opening modal in add mode
+    const modalModelListContainer = document.getElementById("modal-model-list-container");
+    if (modalModelListContainer) modalModelListContainer.classList.add("hidden");
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   }
 
@@ -1072,6 +1072,9 @@ function setupEventListeners() {
     if (modalModelName) modalModelName.value = model.model || "";
     if (modalModelLabel) modalModelLabel.value = model.label || "";
     if (modalStatus) { modalStatus.textContent = ""; modalStatus.className = "settings-status"; }
+    // Hide model list container when opening modal in edit mode
+    const modalModelListContainer = document.getElementById("modal-model-list-container");
+    if (modalModelListContainer) modalModelListContainer.classList.add("hidden");
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   };
 
@@ -1310,10 +1313,30 @@ function setupEventListeners() {
       
       if (ruleNameInput) ruleNameInput.value = "默认全局工作区";
       if (rulePatternInput) rulePatternInput.value = "*";
+      
       if (ruleProviderInput) {
-        ruleProviderInput.value = "claude-agent";
-        toggleRuleCwdGroup("claude-agent");
-        renderRuleModelSelection("claude-agent", "claude-code");
+        // Re-render models to get fresh list
+        renderConfiguredModelsForRule();
+        
+        // Try to find and select a claude-agent option
+        let found = false;
+        for (let i = 0; i < ruleProviderInput.options.length; i++) {
+          const opt = ruleProviderInput.options[i];
+          if (opt.dataset.provider === "claude-agent") {
+            ruleProviderInput.selectedIndex = i;
+            found = true;
+            break;
+          }
+        }
+        
+        // If claude-agent not found, just use first option
+        if (!found && ruleProviderInput.options.length > 0) {
+          ruleProviderInput.selectedIndex = 0;
+        }
+        
+        const selectedOption = ruleProviderInput.options[ruleProviderInput.selectedIndex];
+        const provider = selectedOption?.dataset?.provider || "claude-agent";
+        toggleRuleCwdGroup(provider);
       }
       
       setTimeout(() => {
@@ -1358,7 +1381,6 @@ function setupEventListeners() {
   const cancelRuleBtn = document.getElementById("cancel-rule-btn");
   const ruleEditorForm = document.getElementById("rule-editor-form");
   const ruleProviderSelect = document.getElementById("rule-provider");
-  const ruleModelSelect = document.getElementById("rule-model");
 
   if (addRuleBtn) {
     addRuleBtn.addEventListener("click", () => {
@@ -1380,43 +1402,19 @@ function setupEventListeners() {
 
   if (ruleProviderSelect) {
     ruleProviderSelect.addEventListener("change", (e) => {
-      const provider = e.target.value;
+      const selectedOption = e.target.options[e.target.selectedIndex];
+      const provider = selectedOption.dataset.provider || "gemini";
       toggleRuleCwdGroup(provider);
-      
-      const defaultModels = providerModels[provider] || [];
-      const defaultVal = defaultModels.length > 0 ? defaultModels[0].value : "";
-      renderRuleModelSelection(provider, defaultVal);
+      // Model is already selected via the option, no need to render
     });
   }
 
-  if (ruleModelSelect) {
-    ruleModelSelect.addEventListener("change", (e) => {
-      if (e.target.value === "__manual__") {
-        const manualVal = prompt("请输入您的自定义模型名称 (如 llama3, qwen2.5:7b):");
-        if (manualVal && manualVal.trim()) {
-          const val = manualVal.trim();
-          
-          let exists = false;
-          for (let i = 0; i < e.target.options.length; i++) {
-            if (e.target.options[i].value === val) {
-              e.target.selectedIndex = i;
-              exists = true;
-              break;
-            }
-          }
-          
-          if (!exists) {
-            const opt = document.createElement("option");
-            opt.value = val;
-            opt.textContent = val;
-            opt.selected = true;
-            e.target.insertBefore(opt, e.target.firstChild);
-            e.target.value = val;
-          }
-        } else {
-          e.target.value = e.target.firstChild ? e.target.firstChild.value : "";
-        }
-      }
+  // Add listener for modal sync models button
+  const modalSyncBtn = document.getElementById("modal-sync-models-btn");
+  if (modalSyncBtn) {
+    modalSyncBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await handleFetchCustomModels();
     });
   }
 
@@ -1427,21 +1425,30 @@ function setupEventListeners() {
       const editIndexInput = document.getElementById("edit-rule-index");
       const ruleName = document.getElementById("rule-name").value.trim();
       const rulePattern = document.getElementById("rule-pattern").value.trim();
-      const ruleProvider = document.getElementById("rule-provider").value;
-      const ruleModel = document.getElementById("rule-model").value;
+      const ruleProviderSelect = document.getElementById("rule-provider");
       const ruleCwd = document.getElementById("rule-cwd").value.trim();
       
-      if (!ruleName || !rulePattern || !ruleProvider || !ruleModel) {
+      if (!ruleName || !rulePattern || !ruleProviderSelect.value) {
         alert("请填写所有必填字段");
+        return;
+      }
+      
+      // Extract provider and model from selected option
+      const selectedOption = ruleProviderSelect.options[ruleProviderSelect.selectedIndex];
+      const provider = selectedOption.dataset.provider || "gemini";
+      const model = selectedOption.dataset.modelName || "";
+      
+      if (!provider || !model) {
+        alert("请选择有效的模型");
         return;
       }
       
       const newRule = {
         name: ruleName,
         pattern: rulePattern,
-        provider: ruleProvider,
-        model: ruleModel,
-        cwd: ruleProvider.endsWith("-agent") ? ruleCwd : "",
+        provider: provider,
+        model: model,
+        cwd: provider.endsWith("-agent") ? ruleCwd : "",
         enabled: true
       };
       
@@ -1507,7 +1514,7 @@ function renderModelSelection(provider, selectedValue) {
   const allModels = [...predefined, ...added];
 
   // If we have custom sync button, toggle its visibility in the header actions block
-  const syncBtn = document.getElementById("fetch-custom-models-btn");
+  const syncBtn = document.getElementById("modal-sync-models-btn");
   if (syncBtn) {
     if (provider === "custom") {
       syncBtn.classList.remove("hidden");
@@ -1605,12 +1612,21 @@ function renderModelSelection(provider, selectedValue) {
 
 // Fetch custom models from OpenAI-compatible or Ollama endpoints
 async function handleFetchCustomModels() {
-  const syncBtn = document.getElementById("fetch-custom-models-btn");
-  const urlVal = apiUrl.value.trim();
-  const keyVal = apiKey.value.trim();
+  const syncBtn = document.getElementById("modal-sync-models-btn");
+  const modalStatus = document.getElementById("modal-status");
+  
+  // Read from modal form fields, not global stubs
+  const modalApiUrl = document.getElementById("modal-api-url");
+  const modalApiKey = document.getElementById("modal-api-key");
+  
+  const urlVal = modalApiUrl ? modalApiUrl.value.trim() : "";
+  const keyVal = modalApiKey ? modalApiKey.value.trim() : "";
   
   if (!urlVal) {
-    showSettingsStatus("请先输入您的自定义 API 基准地址 (Base URL)。", "error");
+    if (modalStatus) {
+      modalStatus.textContent = "请先输入您的自定义 API 基准地址 (Base URL)。";
+      modalStatus.className = "settings-status error";
+    }
     return;
   }
   
@@ -1619,6 +1635,11 @@ async function handleFetchCustomModels() {
     syncBtn.classList.add("loading");
     syncBtn.disabled = true;
     syncBtn.querySelector("span").textContent = "正在同步...";
+  }
+  
+  if (modalStatus) {
+    modalStatus.textContent = "正在同步模型列表...";
+    modalStatus.className = "settings-status";
   }
   
   // Clean URL
@@ -1678,7 +1699,7 @@ async function handleFetchCustomModels() {
   if (syncBtn) {
     syncBtn.classList.remove("loading");
     syncBtn.disabled = false;
-    syncBtn.querySelector("span").textContent = "同步";
+    syncBtn.querySelector("span").textContent = "同步可用模型";
   }
   
   if (success && fetchedList.length > 0) {
@@ -1702,9 +1723,54 @@ async function handleFetchCustomModels() {
     }
     
     renderModelSelection("custom", modelToSelect);
-    showSettingsStatus(`成功同步了 ${fetchedList.length} 个模型！`, "success");
+    
+    // Display fetched models in the modal list for quick selection
+    const modalModelList = document.getElementById("modal-model-list");
+    const modalModelListContainer = document.getElementById("modal-model-list-container");
+    
+    if (modalModelList && modalModelListContainer) {
+      modalModelList.innerHTML = "";
+      
+      fetchedList.forEach(modelName => {
+        const item = document.createElement("div");
+        item.className = "modal-model-item";
+        if (modelName === modelToSelect) {
+          item.classList.add("active");
+        }
+        item.textContent = modelName;
+        
+        item.addEventListener("click", () => {
+          // Update the model name field
+          document.getElementById("modal-model-name").value = modelName;
+          
+          // Update active state
+          modalModelList.querySelectorAll(".modal-model-item").forEach(el => {
+            el.classList.remove("active");
+          });
+          item.classList.add("active");
+        });
+        
+        modalModelList.appendChild(item);
+      });
+      
+      modalModelListContainer.classList.remove("hidden");
+    }
+    
+    if (modalStatus) {
+      modalStatus.textContent = `✓ 成功同步了 ${fetchedList.length} 个模型！`;
+      modalStatus.className = "settings-status success";
+    }
   } else {
-    showSettingsStatus(`同步失败：${lastError}`, "error");
+    // Hide the model list container if sync fails
+    const modalModelListContainer = document.getElementById("modal-model-list-container");
+    if (modalModelListContainer) {
+      modalModelListContainer.classList.add("hidden");
+    }
+    
+    if (modalStatus) {
+      modalStatus.textContent = `✗ 同步失败：${lastError}`;
+      modalStatus.className = "settings-status error";
+    }
   }
 }
 
@@ -3044,6 +3110,60 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
 
 // --- UTILITY MARKDOWN PARSER ---
 
+// Convert Markdown table to HTML table
+function markdownTableToHTML(tableLines) {
+  if (tableLines.length < 2) return "";
+  
+  // Parse header row
+  const headerCells = tableLines[0]
+    .split("|")
+    .map(cell => cell.trim())
+    .filter(cell => cell);
+  
+  // Parse separator row to detect alignment
+  const separatorCells = tableLines[1]
+    .split("|")
+    .map(cell => cell.trim())
+    .filter(cell => cell);
+  
+  const alignments = separatorCells.map(sep => {
+    if (/^:-*:$/.test(sep)) return "center";
+    if (/:$/.test(sep)) return "right";
+    if (/^:/.test(sep)) return "left";
+    return "";
+  });
+  
+  // Parse data rows
+  const dataRows = tableLines.slice(2).map(line =>
+    line
+      .split("|")
+      .map(cell => cell.trim())
+      .filter((_, idx) => idx < headerCells.length)
+  );
+  
+  // Build HTML table
+  let html = '<table class="md-table"><thead><tr>';
+  
+  headerCells.forEach((header, idx) => {
+    const align = alignments[idx] ? ` style="text-align:${alignments[idx]}"` : "";
+    html += `<th${align}>${applyInlineMarkdown(header)}</th>`;
+  });
+  
+  html += '</tr></thead><tbody>';
+  
+  dataRows.forEach(row => {
+    html += '<tr>';
+    row.forEach((cell, idx) => {
+      const align = alignments[idx] ? ` style="text-align:${alignments[idx]}"` : "";
+      html += `<td${align}>${applyInlineMarkdown(cell)}</td>`;
+    });
+    html += '</tr>';
+  });
+  
+  html += '</tbody></table>';
+  return html;
+}
+
 // Safe, lightweight markdown to HTML compiler
 function formatMarkdown(text) {
   if (!text) return "";
@@ -3143,6 +3263,33 @@ function formatMarkdown(text) {
       flushPara();
       // Don't flush lists on single blank line — lists can have loose items
       continue;
+    }
+
+    // ── Markdown table detection ──
+    // A table must have at least 2 lines: header | separator
+    if (trimmed.startsWith("|") && i + 1 < lines.length) {
+      const nextTrimmed = lines[i + 1].trim();
+      // Check if next line is a valid table separator
+      if (/^\|[\s\-:|]+\|?$/.test(nextTrimmed) && nextTrimmed.includes("---")) {
+        flushPara();
+        flushLists();
+        
+        // Parse table: start from current line, collect until we hit a non-table line
+        const tableLines = [];
+        let j = i;
+        while (j < lines.length && /^\|/.test(lines[j].trim())) {
+          tableLines.push(lines[j].trim());
+          j++;
+        }
+        
+        // Convert Markdown table to HTML
+        if (tableLines.length >= 2) {
+          const tableHTML = markdownTableToHTML(tableLines);
+          outputParts.push(tableHTML);
+          i = j - 1; // Skip the processed table lines
+          continue;
+        }
+      }
     }
 
     // ── Headings: # h1, ## h2 ... ###### h6 ──
@@ -3704,7 +3851,6 @@ function openRuleEditor(index = null) {
   
   const ruleName = document.getElementById("rule-name");
   const rulePattern = document.getElementById("rule-pattern");
-  const ruleProvider = document.getElementById("rule-provider");
   const ruleCwd = document.getElementById("rule-cwd");
   
   if (!ruleEditor) return;
@@ -3716,24 +3862,47 @@ function openRuleEditor(index = null) {
     
     ruleName.value = rule.name || "";
     rulePattern.value = rule.pattern || "";
-    ruleProvider.value = rule.provider || "gemini";
-    
-    toggleRuleCwdGroup(rule.provider);
     ruleCwd.value = rule.cwd || "";
     
-    renderRuleModelSelection(rule.provider, rule.model || "");
+    // Render configured models and select the one matching this rule
+    renderConfiguredModelsForRule();
+    // Try to find and select the matching model
+    const ruleProviderSelect = document.getElementById("rule-provider");
+    if (ruleProviderSelect) {
+      // Look for a model that matches the saved rule provider/model
+      let found = false;
+      for (let i = 0; i < ruleProviderSelect.options.length; i++) {
+        const opt = ruleProviderSelect.options[i];
+        if (opt.dataset.provider === rule.provider && opt.dataset.modelName === rule.model) {
+          ruleProviderSelect.selectedIndex = i;
+          found = true;
+          break;
+        }
+      }
+      // If not found, try to match by just provider
+      if (!found) {
+        for (let i = 0; i < ruleProviderSelect.options.length; i++) {
+          const opt = ruleProviderSelect.options[i];
+          if (opt.dataset.provider === rule.provider) {
+            ruleProviderSelect.selectedIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    
+    toggleRuleCwdGroup(rule.provider);
   } else {
     editorTitle.textContent = "添加规则";
     editIndexInput.value = "";
     
     ruleName.value = "";
     rulePattern.value = "";
-    ruleProvider.value = "gemini";
-    
-    toggleRuleCwdGroup("gemini");
     ruleCwd.value = "";
     
-    renderRuleModelSelection("gemini", "");
+    // Render configured models for new rule
+    renderConfiguredModelsForRule();
+    toggleRuleCwdGroup("gemini");
   }
   
   ruleEditor.classList.remove("hidden");
@@ -3769,6 +3938,73 @@ function renderRuleModelSelection(provider, selectedValue) {
       opt.selected = true;
       ruleModelSelect.appendChild(opt);
     }
+  }
+}
+
+// Render configured models list for rule selection (new approach)
+function renderConfiguredModelsForRule(selectedModelId = null) {
+  const ruleProviderSelect = document.getElementById("rule-provider");
+  if (!ruleProviderSelect) return;
+  
+  ruleProviderSelect.innerHTML = "";
+  
+  // Add configured API models
+  if (configuredApiModels.length > 0) {
+    const group = document.createElement("optgroup");
+    group.label = "已配置的 API 模型";
+    configuredApiModels.forEach(model => {
+      const opt = document.createElement("option");
+      opt.value = model.id;
+      opt.dataset.type = "api";
+      opt.dataset.provider = model.provider;
+      opt.dataset.modelName = model.model;
+      opt.dataset.isAgent = "false";
+      opt.textContent = `${model.label} (${model.provider})`;
+      if (model.id === selectedModelId) opt.selected = true;
+      group.appendChild(opt);
+    });
+    ruleProviderSelect.appendChild(group);
+  }
+  
+  // Add detected local agents
+  if (detectedLocalAgents.length > 0) {
+    const group = document.createElement("optgroup");
+    group.label = "本地 Agent";
+    detectedLocalAgents.forEach(agent => {
+      const agentModel = agent.id || "";
+      const agentLabel = agent.label || agent.displayName || agent.name || agentModel;
+      const opt = document.createElement("option");
+      opt.value = agent.id;
+      opt.dataset.type = "agent";
+      opt.dataset.provider = agent.id; // e.g., "claude-agent"
+      opt.dataset.modelName = agentModel;
+      opt.dataset.isAgent = "true";
+      opt.textContent = agentLabel;
+      if (agent.id === selectedModelId) opt.selected = true;
+      group.appendChild(opt);
+    });
+    ruleProviderSelect.appendChild(group);
+  }
+  
+  // If nothing configured, show default providers as fallback
+  if (configuredApiModels.length === 0 && detectedLocalAgents.length === 0) {
+    const defaults = [
+      { label: "Google Gemini 官方 API", value: "gemini:default", provider: "gemini", model: "gemini-2.0-flash" },
+      { label: "OpenAI 官方 API", value: "openai:default", provider: "openai", model: "gpt-4" },
+      { label: "Anthropic Claude 官方 API", value: "claude:default", provider: "claude", model: "claude-3-5-sonnet-20241022" },
+      { label: "Claude Code 本地 Agent", value: "claude-agent:default", provider: "claude-agent", model: "claude-code" },
+      { label: "Codex CLI 本地 Agent", value: "codex-agent:default", provider: "codex-agent", model: "codex" },
+      { label: "Gemini CLI 本地 Agent", value: "gemini-agent:default", provider: "gemini-agent", model: "gemini" }
+    ];
+    defaults.forEach(item => {
+      const opt = document.createElement("option");
+      opt.value = item.value;
+      opt.dataset.provider = item.provider;
+      opt.dataset.modelName = item.model;
+      opt.dataset.isAgent = item.provider.endsWith("-agent") ? "true" : "false";
+      opt.textContent = item.label;
+      ruleProviderSelect.appendChild(opt);
+    });
   }
 }
 

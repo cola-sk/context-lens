@@ -208,21 +208,14 @@
                 </div>
                 
                 <div class="form-group">
-                  <label for="rule-provider">AI 供应商</label>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label for="rule-provider">选择模型</label>
+                    <button type="button" id="refresh-rule-agents-btn" class="refresh-agents-btn">🔄 刷新本地 Agent</button>
+                  </div>
                   <select id="rule-provider">
-                    <option value="gemini">Google Gemini 官方 API</option>
-                    <option value="openai">OpenAI 官方 API</option>
-                    <option value="claude">Anthropic Claude 官方 API</option>
-                    <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
-                    <option value="claude-agent">Claude Code 本地 Agent</option>
-                    <option value="codex-agent">Codex CLI 本地 Agent</option>
-                    <option value="gemini-agent">Gemini CLI 本地 Agent</option>
+                    <!-- 动态生成：已配置的API模型 + 本地Agent -->
                   </select>
-                </div>
-                
-                <div class="form-group" id="rule-model-group">
-                  <label for="rule-model">模型标识符</label>
-                  <select id="rule-model"></select>
+                  <small class="form-tip">从已配置的模型列表中选择。当前规则命中时将自动使用该模型。</small>
                 </div>
                 
                 <div class="form-group" id="rule-cwd-group">
@@ -352,6 +345,12 @@
         </button>
 
         <div id="modal-status" class="settings-status"></div>
+
+        <!-- Model List Container (shows fetched models for selection) -->
+        <div id="modal-model-list-container" class="modal-model-list-container hidden">
+          <label>可用的模型</label>
+          <div id="modal-model-list" class="modal-model-list"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" id="modal-cancel-btn" class="secondary-btn">取消</button>

@@ -673,6 +673,41 @@ body.dark-theme {
   color: #0369a1; /* clear sky-700 for light pre-code block */
 }
 
+/* ── Markdown Tables ────────────────────────────────────────────────── */
+.message-bubble table, .agent-result-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 14px;
+  background: white;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.message-bubble table th {
+  background: rgba(0, 0, 0, 0.04);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-light);
+}
+
+.message-bubble table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-secondary);
+}
+
+.message-bubble table tr:last-child td {
+  border-bottom: none;
+}
+
+.message-bubble table tbody tr:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
 /* ── Rendered Markdown Typography ─────────────────────────────────────── */
 
 /* Paragraphs */
@@ -999,6 +1034,58 @@ body.dark-theme {
   color: var(--text-muted);
   line-height: 1.4;
   margin-top: 2px;
+}
+
+/* Modal Model List Container */
+.modal-model-list-container {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+}
+
+.modal-model-list-container.hidden {
+  display: none;
+}
+
+.modal-model-list-container label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.modal-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.modal-model-item {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+}
+
+.modal-model-item:hover {
+  background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.modal-model-item.active {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
+  font-weight: 500;
 }
 
 .range-wrapper {
@@ -1477,6 +1564,30 @@ body.dark-theme {
 
 @keyframes spin {
   100% { transform: rotate(360deg); }
+}
+
+.refresh-agents-btn {
+  background: rgba(99, 102, 241, 0.08) !important;
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+  color: var(--accent-indigo) !important;
+  padding: 4px 10px !important;
+  height: auto !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: all 0.2s ease !important;
+}
+
+.refresh-agents-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+
+.refresh-agents-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .spinning-icon {
