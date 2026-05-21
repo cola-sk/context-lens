@@ -1,87 +1,85 @@
-# Implementation Plan - URL-Based Auto-Switching Rules for AI Providers & Workspaces
+# Implementation Plan - Refactoring Model Selection to List & Custom Models Management
 
-This plan outlines the architecture, UI design, and logic for introducing **URL-based Auto-Switching Rules** in ContextLens. 
-
-This feature will allow users to define multiple rules mapping URL patterns (e.g. `*github.com/my-org/*`, `localhost:3000/*`) to specific AI providers, models, and local working directories (CWDs) for the Claude Code local agent. The extension will monitor tab changes and dynamically auto-switch configurations, rendering a beautiful "Matched Rule" banner when a rule is active.
+This plan outlines the architecture, UI changes, and JS logic to transition the model selection field in basic settings into an interactive, manageable list with support for adding custom models (such as `codex-agent`, `deepseek-chat`, etc.) and deleting them. It also covers removing the redundant matched rule URL switching banner since the bottom status bar already displays the active model/agent.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Settings Drawer Tabs:**
->   - We will introduce a clean Tab navigation (`基本配置` / `自动切换规则`) in the settings drawer.
->   - **Tab 1:** Contains the existing provider default API configurations.
->   - **Tab 2:** Features a dynamic Rules Manager where users can view, reorder (move up/down), toggle, delete, and add custom URL switching rules.
-> - **Tab URL Matching Rules:**
->   - Rules are evaluated in order of precedence (top to bottom).
->   - Supports glob wildcards (e.g. `*localhost:3000*`, `*github.com/*`) and clean substring matching.
-> - **Matched Indicator:**
->   - We will add a gorgeous `#rule-match-banner` immediately above the chat input box to notify the user whenever their current page matches an active workspace rule.
+> - **Removal of Redundant Matched URL Banner:**
+>   - The `#rule-match-banner` element displayed above the chat input will be removed to prevent clutter and redundancy, as the status bar pill at the bottom already highlights the active model/agent accurately.
+> - **Interactive Model List & Custom Additions:**
+>   - Instead of a dropdown selection, basic settings will show a beautifully designed scrollable list of models for the active provider.
+>   - A `➕ 添加模型` button on the top-right of the model section will enable users to add custom models or local agent identifiers to any provider.
+>   - User-added custom models will display a small trash button to delete them dynamically.
+>   - The added models will be saved in `chrome.storage.local` under `addedProviderModels` and will be dynamically available in the auto-switching rules selector.
 
 ---
 
 ## Proposed Changes
 
-### Component 1: Extension HTML UI [MODIFY]
+### Component 1: Extension HTML [MODIFY]
 
 #### [MODIFY] [sidepanel.html](file:///Users/liuzhe.x/coding/ContextLens/sidepanel/sidepanel.html)
-1. **Insert `#rule-match-banner`**:
-   Add a beautiful matched rule indicator above the footer input bar.
-2. **Settings Drawer Restructuring**:
-   - Add `.drawer-tabs` navigation buttons right under `.drawer-header`.
-   - Wrap `#settings-form` inside `<div id="panel-general">`.
-   - Add `<div id="panel-rules" class="hidden">` containing:
-     - The rules list container `#rules-list`.
-     - An "Add Rule" button `#add-rule-btn`.
-     - The rules editor form panel `#rule-editor` (hidden by default, slides down when adding/editing).
+- Remove the redundant `#rule-match-banner` from `app-footer`.
+- Replace the `<select id="api-model">` in `#model-select-group` with a structured list layout:
+  - Header: Label plus sync button and `➕ 添加` button.
+  - Container: `#model-list-container` to render model items dynamically.
 
 ---
 
-### Component 2: CSS Styles & Themes [MODIFY]
+### Component 2: CSS Styles [MODIFY]
 
 #### [MODIFY] [sidepanel.css](file:///Users/liuzhe.x/coding/ContextLens/sidepanel/sidepanel.css)
-- Style `.drawer-tabs` and `.drawer-tab` (active indicator with `--accent-indigo` border bottom).
-- Style `.rule-card`, metadata tags, active switches, and sorting/management buttons.
-- Style the rules editor form (`.rule-editor-panel`) with modern inputs and secondary button actions.
-- Style the `#rule-match-banner` with micro-animations and glow-indigo accent.
+- Add rules for:
+  - `.model-select-header` (flex alignment of label and buttons)
+  - `.add-model-btn`, `.sync-btn` (sleek micro-buttons)
+  - `.model-list-container` (scrollable box with subtle borders and shadows)
+  - `.model-item` (interactive pills, transitions, `.active` styling)
+  - `.model-item-info`, `.model-item-name`, `.model-item-id`
+  - `.model-item-delete` (coral hover state for deleting custom models)
 
 ---
 
 ### Component 3: Extension JS Logic [MODIFY]
 
 #### [MODIFY] [sidepanel.js](file:///Users/liuzhe.x/coding/ContextLens/sidepanel/sidepanel.js)
-1. **Storage and Load Persistence**:
-   - Maintain `urlSwitchRules` in local storage. Populate with sensible starter rules on first load.
-   - Back up standard settings in `globalSettingsBackup` during initial load.
-2. **Glob URL Matcher**:
-   - Implement `matchUrlPattern(url, pattern)` supporting standard globbing wildcards (`*`) and case-insensitive substring fallbacks.
-3. **Auto-Switch Evaluator**:
-   - Implement `applyUrlSwitchingForTab(tabId)` which evaluates the tab URL against active rules.
-   - If a rule matches, dynamically override active provider settings and CWD, and render the matching banner.
-   - If no rule matches, safely revert to default `globalSettingsBackup` configs.
-4. **Rules CRUD & Reordering**:
-   - Implement drawer tab toggling.
-   - Render the rules list dynamically.
-   - Implement rule creation, editing, status toggles, deletion, and order sorting (Move Up/Down).
+1. **Model Storage & Migration (`addedProviderModels`)**:
+   - Initialize a global object: `addedProviderModels = { gemini: [], openai: [], claude: [], "claude-agent": [], custom: [] };`.
+   - Retrieve `addedProviderModels` in `loadSettings()`.
+   - Implement seamless backward compatibility: if existing `customModels` exist in local storage, migrate them to `addedProviderModels.custom`.
+2. **Refactored `renderModelSelection(provider, selectedValue)`**:
+   - Instead of a dropdown or input, dynamically build a list of pre-configured + custom added models.
+   - Inject a hidden `<input type="hidden" id="api-model">` with the selected model value to ensure the existing submit/save logic handles selected models perfectly without modifications.
+   - Handle active states, selection clicks, and custom model deletion.
+3. **Refactored `handleFetchCustomModels()`**:
+   - Adapt it to save fetched custom models directly into both `customModels` (for compatibility) and `addedProviderModels.custom`.
+4. **Interactive Prompt for Adding Custom Models**:
+   - Wire up `add-model-btn` to prompt the user for model ID (e.g. `codex-agent`) and showing-name, and select it instantly.
+5. **Auto-Switching Rule Editor**:
+   - Update `renderRuleModelSelection` to load both pre-configured and custom added models for the selected provider.
+6. **Clean Up Rule Match Banner**:
+   - Safely remove/ignore the banner updates to prevent any element-not-found issues.
 
 ---
 
 ## Verification Plan
 
 ### Manual Verification
-1. Open the ContextLens settings drawer, navigate to the **自动切换规则** tab.
-2. Verify there is a helpful "no rules configured" visual placeholder if empty.
-3. Click **添加新规则** (Add Rule) and fill in:
-   - **名称:** `ContextLens Workspace`
-   - **URL 匹配规则:** `*github.com/cola-sk/context-lens*`
-   - **AI 供应商:** `Claude Code 本地 Agent`
-   - **工作区绝对路径 (CWD):** `/Users/liuzhe.x/coding/ContextLens`
-4. Click **保存规则** and verify the card renders beautifully. Toggle the switch off/on, move it up/down, and try editing.
-5. Visit a tab on Github matching the pattern.
-   - Verify the chat footer immediately shows `🎯 已按 URL 匹配规则: ContextLens Workspace`.
-   - Verify the provider automatically switches to Claude Code and displays `/Users/liuzhe.x/coding/ContextLens`.
-6. Switch to a tab on `google.com` (doesn't match).
-   - Verify the matched banner slides out of view.
-   - Verify the provider and CWD revert to your original default configurations.
-7. Perform a query on the matched tab and confirm the local agent spawns and runs in the rule's specific CWD.
+1. **Verify Banner Removal:**
+   - Navigate matching tabs, verify no "已按 URL 匹配规则..." banner shows up, but the active model/agent dynamically updates in the bottom status pill.
+2. **Verify Interactive Model List:**
+   - In "基本配置" drawer, observe the models rendered as a list instead of a dropdown.
+   - Verify selecting a model updates the active selection immediately and is saved properly.
+3. **Verify Adding Custom Model/Agent:**
+   - Click `➕ 添加模型` in the top right.
+   - Enter model identifier `codex-agent`, and display name `Codex Local Agent`.
+   - Confirm it appears in the list, is selected, and is highlighted.
+   - Click "保存配置" and check the status bar updates to "Codex Local Agent" / `codex-agent`.
+4. **Verify Deleting Custom Model:**
+   - Click the small trash icon next to `Codex Local Agent`.
+   - Confirm it is deleted, and selection falls back to the default provider model.
+5. **Verify Rules Selector Integrations:**
+   - Go to Tab 2 (自动切换规则) -> Click edit/create rule -> Choose provider `Claude Code 本地 Agent` or custom.
+   - Verify the custom added model appears in the rule editor's model dropdown list.

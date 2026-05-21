@@ -31,8 +31,120 @@ function findClaudeExecutable() {
   }
 
   // 3. Fallback to just "claude", hoping it's in process PATH
-  return 'claude';
+  return null;
 }
+
+function findExecutable(name) {
+  try {
+    const whichPath = execSync(`which ${name}`, { encoding: 'utf8', stdio: [] }).trim();
+    if (whichPath && fs.existsSync(whichPath)) {
+      return whichPath;
+    }
+  } catch (e) {}
+
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, `.local/bin/${name}`),
+    path.join(home, `.npm-global/bin/${name}`),
+    `/usr/local/bin/${name}`,
+    `/opt/homebrew/bin/${name}`,
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
+function getExecutableVersion(execPath, versionFlag = '--version') {
+  try {
+    const out = execSync(`"${execPath}" ${versionFlag}`, { encoding: 'utf8', timeout: 3000, stdio: [] }).trim();
+    // Extract first line that looks like a version number
+    const match = out.match(/[\d]+\.[\d]+\.?[\d]*/);
+    return match ? match[0] : out.split('\n')[0].trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+function detectLocalAgents() {
+  const results = [];
+
+  // 1. Claude Code CLI (Anthropic)
+  const claudePath = findExecutable('claude') || findClaudeExecutable();
+  if (claudePath) {
+    const version = getExecutableVersion(claudePath);
+    results.push({
+      id: 'claude-agent',
+      label: 'Claude Code',
+      subLabel: 'Anthropic CLI Agent',
+      type: 'local',
+      available: true,
+      executablePath: claudePath,
+      version: version || 'unknown'
+    });
+  } else {
+    results.push({ id: 'claude-agent', label: 'Claude Code', subLabel: 'Anthropic CLI Agent', type: 'local', available: false, executablePath: null, version: null });
+  }
+
+  // 2. OpenAI Codex CLI
+  const codexPath = findExecutable('codex');
+  if (codexPath) {
+    const version = getExecutableVersion(codexPath);
+    results.push({
+      id: 'codex-agent',
+      label: 'Codex CLI',
+      subLabel: 'OpenAI CLI Agent',
+      type: 'local',
+      available: true,
+      executablePath: codexPath,
+      version: version || 'unknown'
+    });
+  } else {
+    results.push({ id: 'codex-agent', label: 'Codex CLI', subLabel: 'OpenAI CLI Agent', type: 'local', available: false, executablePath: null, version: null });
+  }
+
+  // 3. Gemini CLI (google-gemini-cli)
+  const geminiPath = findExecutable('gemini');
+  if (geminiPath) {
+    const version = getExecutableVersion(geminiPath);
+    results.push({
+      id: 'gemini-agent',
+      label: 'Gemini CLI',
+      subLabel: 'Google CLI Agent',
+      type: 'local',
+      available: true,
+      executablePath: geminiPath,
+      version: version || 'unknown'
+    });
+  } else {
+    results.push({ id: 'gemini-agent', label: 'Gemini CLI', subLabel: 'Google CLI Agent', type: 'local', available: false, executablePath: null, version: null });
+  }
+
+  return results;
+}
+
+// Cache: detect agents once at startup in background (non-blocking)
+let cachedAgents = null;
+let agentDetectionReady = false;
+
+function warmupAgentDetection() {
+  // Run detection in a setImmediate to not block server startup
+  setImmediate(() => {
+    try {
+      console.log('[ContextLens Bridge] Detecting local agents in background...');
+      cachedAgents = detectLocalAgents();
+      agentDetectionReady = true;
+      const available = cachedAgents.filter(a => a.available).map(a => a.label);
+      console.log(`[ContextLens Bridge] Detected: ${available.length > 0 ? available.join(', ') : 'none'}`);
+    } catch (e) {
+      cachedAgents = [];
+      agentDetectionReady = true;
+      console.warn('[ContextLens Bridge] Agent detection failed:', e.message);
+    }
+  });
+}
+
+
 
 class LineBuffer {
   constructor(onLine) {
@@ -79,7 +191,7 @@ const server = http.createServer((req, res) => {
 
     req.on('end', () => {
       try {
-        const { prompt, cwd, claudePath } = JSON.parse(body);
+        const { prompt, cwd, claudePath, agentId } = JSON.parse(body);
 
         if (!prompt) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -94,23 +206,61 @@ const server = http.createServer((req, res) => {
           'Connection': 'keep-alive'
         });
 
-        // Default local Claude CLI path
-        const executablePath = claudePath || findClaudeExecutable();
+        let executablePath = claudePath;
+        let agentName = "Claude Code";
+        if (!executablePath) {
+          if (agentId === 'codex-agent') {
+            executablePath = findExecutable('codex');
+            agentName = "Codex CLI";
+          } else if (agentId === 'gemini-agent') {
+            executablePath = findExecutable('gemini');
+            agentName = "Gemini CLI";
+          } else {
+            executablePath = findClaudeExecutable();
+            agentName = "Claude Code CLI";
+          }
+        } else {
+           if (agentId === 'codex-agent') agentName = "Codex CLI";
+           else if (agentId === 'gemini-agent') agentName = "Gemini CLI";
+        }
         
-        console.log(`🤖 [Claude Bridge] Spawning Claude Code in CWD: ${cwd || process.cwd()}`);
-        console.log(`🤖 [Claude Bridge] Executable: ${executablePath}`);
+        console.log(`🤖 [ContextLens Bridge] Spawning ${agentName} in CWD: ${cwd || process.cwd()}`);
+        console.log(`🤖 [ContextLens Bridge] Executable: ${executablePath}`);
 
-        // Spawn child process with stdin redirected to prevent block, using structured json stream verbose format
-        const child = spawn(
-          executablePath,
-          [
+        // Build args based on agent type — each CLI has its own interface
+        let spawnArgs;
+        if (agentId === 'codex-agent') {
+          // Codex CLI: codex exec --json --dangerously-bypass-approvals-and-sandbox -C <dir> <prompt>
+          spawnArgs = [
+            'exec',
+            '--json',
+            '--dangerously-bypass-approvals-and-sandbox',
+            '-C', cwd || process.cwd(),
+            prompt
+          ];
+        } else if (agentId === 'gemini-agent') {
+          // Gemini CLI: gemini --output-format=stream-json --yolo <prompt>
+          spawnArgs = [
+            '--output-format', 'stream-json',
+            '--yolo',
+            prompt
+          ];
+        } else {
+          // Claude Code CLI
+          spawnArgs = [
             '-p', prompt,
             '--print',
             '--output-format=stream-json',
             '--include-hook-events',
             '--dangerously-skip-permissions',
             '--verbose'
-          ],
+          ];
+        }
+
+        // Spawn child process with stdin redirected to prevent block
+        const child = spawn(
+          executablePath,
+          spawnArgs,
           {
             cwd: cwd || process.cwd(),
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -135,11 +285,144 @@ const server = http.createServer((req, res) => {
           res.write(`data: ${JSON.stringify({ text, type: 'text' })}\n\n`);
         };
 
-        const processStdoutLine = (line) => {
+        const processCodexStdoutLine = (line) => {
           const trimmed = line.trim();
           if (!trimmed) return;
 
-          // Attempt to parse line as structured JSON
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const json = JSON.parse(trimmed);
+
+              // Codex JSONL event types
+              const type = json.type || '';
+
+              if (type === 'task_started' || type === 'session_started') {
+                sendSystemLog(`⚙️ [初始化] 本地 ${agentName} 工作目录: ${json.cwd || cwd || '默认'}\n`);
+                return;
+              }
+              if (type === 'agent_reasoning' || type === 'reasoning') {
+                const text = json.content || json.value || json.text || '';
+                if (text) sendSystemLog(`💭 思考过程:\n${text}\n\n`);
+                return;
+              }
+              if (type === 'agent_message' || type === 'message') {
+                const text = json.content || json.value || json.text || '';
+                if (text) sendText(text);
+                return;
+              }
+              if (type === 'tool_call' || type === 'function_call') {
+                const toolName = json.name || json.function || '';
+                const toolInput = json.input || json.arguments || {};
+                const inputStr = typeof toolInput === 'object'
+                  ? JSON.stringify(toolInput, null, 2)
+                  : String(toolInput);
+                sendSystemLog(`🔧 调用工具: ${toolName}\n参数:\n${inputStr}\n\n`);
+                return;
+              }
+              if (type === 'tool_result' || type === 'function_result') {
+                const isError = json.is_error || json.error || false;
+                const statusIcon = isError ? '❌' : '➡️';
+                const statusText = isError ? '工具执行失败' : '工具执行结果';
+                let displayContent = json.output || json.content || json.value || '';
+                if (typeof displayContent === 'string' && displayContent.length > 500) {
+                  displayContent = displayContent.substring(0, 500) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                }
+                sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
+                return;
+              }
+              if (type === 'task_complete' || type === 'session_complete') {
+                const text = json.output || json.content || json.value || '';
+                if (text) sendText(text);
+                return;
+              }
+              if (type === 'error') {
+                const msg = json.message || json.value || json.content || String(json);
+                sendSystemLog(`❌ 错误: ${msg}\n`);
+                return;
+              }
+
+              // Generic fallback: look for any text field
+              const text = json.content || json.value || json.text || json.message || '';
+              if (text && typeof text === 'string') sendText(text);
+              return;
+            } catch (err) {
+              // JSON parse error, treat as raw text
+            }
+          }
+
+          sendText(line + '\n');
+        };
+
+        const processGeminiStdoutLine = (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const json = JSON.parse(trimmed);
+              const type = json.type || '';
+
+              // Gemini stream-json event types
+              if (type === 'content' || type === 'text') {
+                const text = json.value || json.text || json.content || '';
+                if (text) sendText(text);
+                return;
+              }
+              if (type === 'tool_call' || type === 'functionCall') {
+                const toolName = json.name || json.function || (json.functionCall && json.functionCall.name) || '';
+                const toolInput = json.input || json.args || (json.functionCall && json.functionCall.args) || {};
+                const inputStr = typeof toolInput === 'object'
+                  ? JSON.stringify(toolInput, null, 2)
+                  : String(toolInput);
+                sendSystemLog(`🔧 调用工具: ${toolName}\n参数:\n${inputStr}\n\n`);
+                return;
+              }
+              if (type === 'tool_result' || type === 'functionResponse') {
+                const isError = json.is_error || json.error || false;
+                const statusIcon = isError ? '❌' : '➡️';
+                const statusText = isError ? '工具执行失败' : '工具执行结果';
+                let displayContent = json.output || json.content || json.value ||
+                  (json.functionResponse && json.functionResponse.response) || '';
+                if (typeof displayContent === 'object') displayContent = JSON.stringify(displayContent);
+                if (typeof displayContent === 'string' && displayContent.length > 500) {
+                  displayContent = displayContent.substring(0, 500) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                }
+                sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
+                return;
+              }
+              if (type === 'error') {
+                const msg = json.message || json.value || json.content || String(json);
+                sendSystemLog(`❌ 错误: ${msg}\n`);
+                return;
+              }
+
+              // Generic fallback: look for any text field
+              const text = json.content || json.value || json.text || json.message || '';
+              if (text && typeof text === 'string') sendText(text);
+              return;
+            } catch (err) {
+              // JSON parse error, treat as raw text
+            }
+          }
+
+          sendText(line + '\n');
+        };
+
+        const processStdoutLine = (line) => {
+          // Route to the correct parser based on agent type
+          if (agentId === 'codex-agent') {
+            processCodexStdoutLine(line);
+            return;
+          }
+          if (agentId === 'gemini-agent') {
+            processGeminiStdoutLine(line);
+            return;
+          }
+
+          const trimmed = line.trim();
+          if (!trimmed) return;
+
+          // Attempt to parse line as structured JSON (Claude Code / Gemini format)
           if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
             try {
               const json = JSON.parse(trimmed);
@@ -147,7 +430,7 @@ const server = http.createServer((req, res) => {
               // 1. System/initialization events
               if (json.type === 'system') {
                 if (json.subtype === 'init') {
-                  sendSystemLog(`⚙️ [初始化] 本地 Claude Code 工作目录: ${json.cwd || '默认'}\n`);
+                  sendSystemLog(`⚙️ [初始化] 本地 ${agentName} 工作目录: ${json.cwd || '默认'}\n`);
                   return;
                 }
                 if (json.subtype === 'hook_started') {
@@ -197,6 +480,22 @@ const server = http.createServer((req, res) => {
                     sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
                   }
                 }
+                return;
+              }
+
+              // 4. Final CLI execution results
+              if (json.type === 'result') {
+                const resText = json.result || json.content || json.value || '';
+                if (resText) {
+                  sendText(resText);
+                }
+                return;
+              }
+
+              // 5. Error events
+              if (json.type === 'error') {
+                const msg = json.message || json.value || json.content || String(json);
+                sendSystemLog(`❌ 错误: ${msg}\n`);
                 return;
               }
 
@@ -252,7 +551,7 @@ const server = http.createServer((req, res) => {
           stdoutBuffer.flush();
           stderrBuffer.flush();
 
-          console.log(`🤖 [Claude Bridge] Claude Code exited with code: ${code}`);
+          console.log(`🤖 [ContextLens Bridge] ${agentName} exited with code: ${code}`);
           res.write(`data: [DONE]\n\n`);
           res.end();
         });
@@ -279,7 +578,16 @@ const server = http.createServer((req, res) => {
   // Health check endpoint
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', service: 'Claude Code Bridge' }));
+    res.end(JSON.stringify({ status: 'ok', service: 'ContextLens Bridge', version: '1.1.0' }));
+    return;
+  }
+
+  // Local Agent Discovery endpoint
+  if (req.method === 'GET' && req.url === '/api/agents') {
+    // Return cached results if ready; if not yet ready, run synchronously as fallback
+    const agents = agentDetectionReady ? cachedAgents : detectLocalAgents();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ agents: agents || [], bridgeVersion: '1.1.0' }));
     return;
   }
 
@@ -290,4 +598,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`🚀 [Claude Bridge] Server listening on http://localhost:${PORT}`);
+  // Start agent detection in background immediately after server starts
+  warmupAgentDetection();
 });

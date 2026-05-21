@@ -145,73 +145,44 @@
         <div class="drawer-body">
           <!-- General Settings Tab Panel -->
           <div id="panel-general" class="tab-panel">
-            <form id="settings-form">
-              <!-- Provider Selector -->
-              <div class="form-group">
-                <label for="api-provider">AI 供应商 (Provider)</label>
-                <select id="api-provider">
-                  <option value="gemini">Google Gemini 官方 API</option>
-                  <option value="openai">OpenAI 官方 API</option>
-                  <option value="claude">Anthropic Claude 官方 API</option>
-                  <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
-                  <option value="claude-agent">Claude Code 本地 Agent</option>
-                </select>
-              </div>
-
-              <!-- API Key (Hidden if local/custom with no auth) -->
-              <div class="form-group" id="key-group">
-                <label for="api-key" id="api-key-label">API 密钥 (API Key)</label>
-                <div class="input-password-wrapper">
-                  <input type="password" id="api-key" placeholder="请输入您的 API 密钥">
-                  <button type="button" id="toggle-key-visibility" class="visibility-btn">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                      <circle cx="12" cy="12" r="3"></circle>
+            <!-- Model Cards Header -->
+            <div class="model-cards-header">
+              <div class="model-cards-title-row">
+                <span class="model-cards-title">可用模型</span>
+                <div class="model-cards-actions">
+                  <button type="button" id="refresh-agents-btn" class="icon-action-btn" title="重新探测本地 Agent">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                     </svg>
+                  </button>
+                  <button type="button" id="add-api-model-btn" class="add-api-model-btn">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    添加 API 模型
                   </button>
                 </div>
               </div>
+              <p class="model-cards-tip" id="model-cards-status">正在探测本地 Agent...</p>
+            </div>
 
-              <!-- Base URL (Only for Custom API and Claude Agent) -->
-              <div class="form-group hidden" id="url-group">
-                <label for="api-url" id="api-url-label">基准地址 / Bridge 地址</label>
-                <input type="text" id="api-url" placeholder="例如 http://localhost:3100">
-                <small class="form-tip" id="api-url-tip">兼容 OpenAI 规范的本地基准 URL，或 Local Claude Code Bridge 地址</small>
+            <!-- Model Card List -->
+            <div id="model-card-list" class="model-card-list">
+              <!-- Dynamically populated by sidepanel.js -->
+            </div>
+
+            <!-- Global Temperature -->
+            <div class="global-temperature-group">
+              <div class="temp-label-row">
+                <label for="model-temperature">温度 / 创造力 (Temperature)</label>
+                <span id="temp-val">0.7</span>
               </div>
+              <input type="range" id="model-temperature" min="0" max="2" step="0.1" value="0.7">
+            </div>
 
-              <!-- Workspace CWD (Only for Claude Agent) -->
-              <div class="form-group hidden" id="cwd-group">
-                <label for="api-cwd">本地项目绝对路径 (CWD)</label>
-                <input type="text" id="api-cwd" placeholder="例如 /Users/liuzhe.x/coding/ContextLens">
-                <small class="form-tip">Claude Agent 运行 the local working directory (defaults to Bridge directory if left empty)</small>
-              </div>
-
-              <!-- Claude Executable Path (Only for Claude Agent - Optional) -->
-              <div class="form-group hidden" id="claude-path-group">
-                <label for="claude-path">Claude 执行文件路径 (可选/自动探测)</label>
-                <input type="text" id="claude-path" placeholder="留空以使用 Bridge 服务自动探测的路径">
-                <small class="form-tip">通常留空即可。如果需要强制指定本地 Claude CLI 的绝对路径可在此填写</small>
-              </div>
-
-              <!-- Model Selection dropdown (or manual input for Custom) -->
-              <div class="form-group" id="model-select-group">
-                <label for="api-model" id="model-label">模型标识符 (Model)</label>
-                <div id="model-input-container">
-                  <!-- Dropdown or input field will be injected dynamically -->
-                  <select id="api-model"></select>
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label for="model-temperature">模型温度 / 创造力 (Temperature)</label>
-                <div class="range-wrapper">
-                  <input type="range" id="model-temperature" min="0" max="2" step="0.1" value="0.7">
-                  <span id="temp-val">0.7</span>
-                </div>
-              </div>
-
-              <button type="submit" class="submit-button glow-button">保存配置</button>
-            </form>
+            <button type="button" id="settings-save-btn" class="submit-button glow-button">保存激活模型</button>
+            <div id="settings-status" class="settings-status"></div>
           </div>
 
           <!-- URL Switching Rules Tab Panel -->
@@ -259,6 +230,8 @@
                     <option value="claude">Anthropic Claude 官方 API</option>
                     <option value="custom">自定义 / 本地 API (兼容 OpenAI)</option>
                     <option value="claude-agent">Claude Code 本地 Agent</option>
+                    <option value="codex-agent">Codex CLI 本地 Agent</option>
+                    <option value="gemini-agent">Gemini CLI 本地 Agent</option>
                   </select>
                 </div>
                 
@@ -270,7 +243,7 @@
                 <div class="form-group" id="rule-cwd-group">
                   <label for="rule-cwd">本地项目绝对路径 (CWD)</label>
                   <input type="text" id="rule-cwd" placeholder="例如: /Users/liuzhe.x/coding/ContextLens">
-                  <small class="form-tip">只在选择 Claude Code 本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
+                  <small class="form-tip">只在选择本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
                 </div>
                 
                 <div class="editor-actions">
@@ -280,18 +253,17 @@
               </form>
             </div>
           </div>
-
-          <div id="settings-status" class="settings-status"></div>
         </div>
       </div>
     </div>
 
-    <!-- Footer Input Bar -->
     <footer class="app-footer">
-      <div id="rule-match-banner" class="rule-match-banner hidden">
-        <span class="banner-icon">🎯</span>
-        <span id="matched-rule-text" class="banner-text">已按 URL 匹配规则: 未知</span>
+      <div id="cwd-warning-banner" class="cwd-warning-banner hidden">
+        <span class="banner-icon">⚠️</span>
+        <span class="banner-text">本地 Agent 未配置工作目录。</span>
+        <button id="create-fallback-rule-btn" class="banner-action-btn">👉 创建全局规则</button>
       </div>
+
       <div id="connection-status-pill" class="status-pill offline">
         <span class="pulse-indicator"></span>
         <span id="connected-model-name">未配置 AI 模型</span>
@@ -306,6 +278,88 @@
         </button>
       </div>
     </footer>
+  </div>
+
+  <!-- Add API Model Modal -->
+  <div id="add-api-model-modal" class="modal-backdrop hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title">配置 API 模型</h3>
+        <button id="close-api-modal-btn" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Provider Selection Grid -->
+        <div class="form-group">
+          <label>选择供应商 (Provider)</label>
+          <div class="provider-grid" id="modal-provider-grid">
+            <button type="button" class="provider-chip active" data-provider="gemini">
+              <span class="provider-chip-icon">🌟</span>
+              <span>Gemini</span>
+            </button>
+            <button type="button" class="provider-chip" data-provider="openai">
+              <span class="provider-chip-icon">🤖</span>
+              <span>OpenAI</span>
+            </button>
+            <button type="button" class="provider-chip" data-provider="claude">
+              <span class="provider-chip-icon">🧠</span>
+              <span>Claude</span>
+            </button>
+            <button type="button" class="provider-chip" data-provider="custom">
+              <span class="provider-chip-icon">⚡</span>
+              <span>自定义</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Display Name -->
+        <div class="form-group">
+          <label for="modal-model-label">显示名称</label>
+          <input type="text" id="modal-model-label" placeholder="例如: Gemini 2.5 Flash">
+        </div>
+
+        <!-- API Key (Gemini / OpenAI / Claude) -->
+        <div class="form-group" id="modal-key-group">
+          <label for="modal-api-key">API 密钥</label>
+          <div class="input-password-wrapper">
+            <input type="password" id="modal-api-key" placeholder="请输入您的 API 密钥">
+            <button type="button" id="modal-toggle-key" class="visibility-btn">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Base URL (Custom only) -->
+        <div class="form-group hidden" id="modal-url-group">
+          <label for="modal-api-url">基准地址 (Base URL)</label>
+          <input type="text" id="modal-api-url" placeholder="例如 http://localhost:11434/v1">
+          <small class="form-tip">兼容 OpenAI 规范的 API 基准地址</small>
+        </div>
+
+        <!-- Model Name / Selector -->
+        <div class="form-group">
+          <label for="modal-model-name">模型标识符</label>
+          <input type="text" id="modal-model-name" placeholder="例如 gemini-2.5-flash, gpt-4o-mini">
+          <small class="form-tip" id="modal-model-hint">常用: gemini-2.5-flash, gemini-2.5-pro</small>
+        </div>
+
+        <!-- Sync Models Button (for custom only) -->
+        <button type="button" id="modal-sync-models-btn" class="sync-btn hidden">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span>同步可用模型</span>
+        </button>
+
+        <div id="modal-status" class="settings-status"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="modal-cancel-btn" class="secondary-btn">取消</button>
+        <button type="button" id="modal-save-btn" class="submit-button glow-button">保存模型</button>
+      </div>
+    </div>
   </div>
 
   <script src="sidepanel.js"></script>

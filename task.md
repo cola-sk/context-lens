@@ -14,13 +14,13 @@
 - `[x]` Enhance right-click element context capturing with proactive zero-latency caching, iframe support, and dynamic self-healing injection
 - `[x]` Verify right-click element context capture end-to-end
 - `[x]` Support real-time tool calling and thinking processes of the Claude Code local agent in progress log window
-  - `[x]` Update `bridge/server.js` with JSON streaming args and robust JSON-line stream parsing
-  - `[x]` Stop the old bridge task and start/verify the new bridge server locally
-  - `[x]` Perform manual end-to-end verification of tool usage rendering in side panel
-  - `[x]` Re-package the updated extension using `package-extension.sh`
-- `[/]` Support URL-based Auto-switching Rules for AI Providers & Workspaces
-  - `[ ]` Update `sidepanel.html` with rule matched banner and drawer tabs structure
-  - `[ ]` Update `sidepanel.css` with tabs, rule cards, switches, and form styling
-  - `[ ]` Update `sidepanel.js` with glob matching, active tab listener auto-switching, and CRUD/reordering panel manager
-  - `[ ]` Verify rules manager UI and switching end-to-end
-  - `[ ]` Re-package using `package-extension.sh`
+- `[x]` Support URL-based Auto-switching Rules for AI Providers & Workspaces
+- `[x]` Refactor Model Configuration to List View and Add Model Feature
+  - `[x]` Update `sidepanel.html` to remove matched rule banner and introduce model-list-container structure
+  - `[x]` Update `sidepanel.css` with layout, item pill, active style, and custom delete button CSS
+  - `[x]` Update `sidepanel.js` to initialize, migrate, render custom model lists, bind add button, and support rules selector
+  - `[x]` Run Javascript compilation sanity test on `sidepanel.js`
+  - `[x]` Repackage Chrome Extension as `ContextLens-v1.0.0.zip` using `package-extension.sh`
+- `[x]` Fix chat styling and input visibility bug (resolve nested footer inside settings-drawer in sidepanel.html)
+- `[x]` Fix final Claude Code execution results display bug (resolve swallowed JSON events in bridge/server.js and rigid separator splits in sidepanel.js)
+
