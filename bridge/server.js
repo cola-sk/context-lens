@@ -257,13 +257,13 @@ const server = http.createServer((req, res) => {
           ];
         }
 
-        // Spawn child process with stdin redirected to prevent block
+        // Spawn child process with stdin redirected via pipe to ensure clean immediate EOF closure
         const child = spawn(
           executablePath,
           spawnArgs,
           {
             cwd: cwd || process.cwd(),
-            stdio: ['ignore', 'pipe', 'pipe'],
+            stdio: ['pipe', 'pipe', 'pipe'],
             env: {
               ...process.env,
               FORCE_COLOR: '0',
@@ -271,6 +271,10 @@ const server = http.createServer((req, res) => {
             }
           }
         );
+
+        if (child.stdin) {
+          child.stdin.end();
+        }
 
         // Track process exit to avoid multiple response writes
         let finished = false;
@@ -295,6 +299,51 @@ const server = http.createServer((req, res) => {
 
               // Codex JSONL event types
               const type = json.type || '';
+
+              // Codex item-based events
+              if (type === 'item.started' && json.item) {
+                const item = json.item;
+                if (item.type === 'command_execution') {
+                  sendSystemLog(`🔧 执行命令: ${item.command || ''}\n\n`);
+                  return;
+                }
+                if (item.type === 'reasoning' || item.type === 'agent_thinking' || item.type === 'thinking') {
+                  const text = item.text || item.content || item.value || '';
+                  if (text) sendSystemLog(`💭 思考过程:\n${text}\n\n`);
+                  return;
+                }
+              }
+
+              if (type === 'item.completed' && json.item) {
+                const item = json.item;
+                if (item.type === 'agent_message') {
+                  const text = item.text || item.content || item.value || '';
+                  if (text) sendText(text);
+                  return;
+                }
+                if (item.type === 'command_execution') {
+                  const exitCode = item.exit_code;
+                  const isError = exitCode !== null && exitCode !== 0;
+                  const statusIcon = isError ? '❌' : '➡️';
+                  const statusText = isError ? `命令执行失败 (退出码: ${exitCode})` : '命令执行成功';
+                  let displayContent = item.aggregated_output || '';
+                  if (typeof displayContent === 'string' && displayContent.length > 800) {
+                    displayContent = displayContent.substring(0, 800) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                  }
+                  sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n`);
+                  return;
+                }
+                if (item.type === 'reasoning' || item.type === 'agent_thinking' || item.type === 'thinking') {
+                  const text = item.text || item.content || item.value || '';
+                  if (text) sendSystemLog(`💭 思考过程:\n${text}\n\n`);
+                  return;
+                }
+              }
+
+              if (type === 'thread.started') {
+                sendSystemLog(`⚙️ [初始化] 本地 Codex CLI 会话已启动\n`);
+                return;
+              }
 
               if (type === 'task_started' || type === 'session_started') {
                 sendSystemLog(`⚙️ [初始化] 本地 ${agentName} 工作目录: ${json.cwd || cwd || '默认'}\n`);

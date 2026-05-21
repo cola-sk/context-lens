@@ -70,6 +70,11 @@ function getTabState(tabId) {
   return tabStates[tabId];
 }
 
+// Persist tabStates to chrome.storage.local
+function persistTabStates() {
+  chrome.storage.local.set({ tabStates }).catch(err => console.warn("Failed to persist tab states:", err));
+}
+
 // Save active tab's global state to tabStates before switching or modifying
 function saveActiveTabState() {
   if (currentTabId) {
@@ -77,6 +82,7 @@ function saveActiveTabState() {
     state.currentContext = currentContext;
     state.chatHistory = [...chatHistory];
     state.includeFullPageChecked = includeFullPageChecked;
+    persistTabStates();
   }
 }
 
@@ -171,7 +177,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Listen for text selection changes via session storage
   chrome.storage.session.onChanged.addListener((changes) => {
     if (changes.lastSelection?.newValue) {
-      handleNewSelection(changes.lastSelection.newValue);
+      handleNewSelection(changes.lastSelection.newValue, true);
     }
   });
 
@@ -214,7 +220,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const sessionData = await chrome.storage.session.get("lastSelection");
   if (sessionData.lastSelection) {
-    handleNewSelection(sessionData.lastSelection);
+    handleNewSelection(sessionData.lastSelection, false); // rehydration — preserve history
   } else {
     rebuildUIForActiveTab();
   }
@@ -222,8 +228,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Load settings from chrome.storage.local
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId"]);
+  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "tabStates"]);
   
+  tabStates = result.tabStates || {};
   appSettings.apiProvider = result.apiProvider || "gemini";
   appSettings.temperature = result.temperature !== undefined ? parseFloat(result.temperature) : 0.7;
 
@@ -942,6 +949,7 @@ function setupEventListeners() {
           fullPageInsight.classList.add("hidden");
         }
       }
+      saveActiveTabState();
     });
   }
 
@@ -969,6 +977,8 @@ function setupEventListeners() {
       welcomeScreen.classList.remove("hidden");
       messagesList.classList.add("hidden");
     }
+
+    saveActiveTabState();
   });
 
   // Settings Drawer Tabs Switching
@@ -1633,10 +1643,12 @@ function rebuildUIForActiveTab() {
       const msgEl = document.createElement("div");
       msgEl.className = `message ${msg.role}`;
       const contentToDisplay = msg.displayText || msg.content;
+      const isAgentMsg = !!(msg.systemLogs || msg.agentLabel);
       if (!isUser) {
+        if (isAgentMsg) msgEl.classList.add("agent-message");
         msgEl.innerHTML = `
           <span class="message-sender">Lens</span>
-          <div class="message-bubble"></div>
+          <div class="message-bubble${isAgentMsg ? " agent-bubble" : ""}"></div>
         `;
         const bubble = msgEl.querySelector(".message-bubble");
         renderAssistantMessage(
@@ -1679,7 +1691,7 @@ function rebuildUIForActiveTab() {
 }
 
 // Handle selected text arrivals
-async function handleNewSelection(selection) {
+async function handleNewSelection(selection, isNewInteraction = false) {
   if (!selection) return;
 
   const tabId = selection.tabId || currentTabId;
@@ -1691,11 +1703,25 @@ async function handleNewSelection(selection) {
   if (selection.text || selection.contextData) {
     state.currentContext = selection;
     state.includeFullPageChecked = false; // Reset to unchecked for safety
+
+    // A new user-triggered selection (Lens button or right-click) resets the
+    // chat for this tab so the conversation starts fresh with the new context.
+    if (isNewInteraction) {
+      // Cancel any in-progress stream
+      if (tabId === currentTabId && activeReader) {
+        try { await activeReader.cancel(); } catch(e) {}
+        activeReader = null;
+      }
+      state.chatHistory = [];
+    }
   }
 
   if (tabId === currentTabId) {
     restoreActiveTabState(currentTabId);
     rebuildUIForActiveTab();
+    saveActiveTabState();
+  } else {
+    persistTabStates();
   }
 }
 
@@ -1721,6 +1747,7 @@ async function handleSendMessage() {
   if (messageTabId) {
     const state = getTabState(messageTabId);
     state.chatHistory = [...chatHistory];
+    persistTabStates();
   }
 
   // Send request to AI
@@ -1873,6 +1900,7 @@ User Question: ${text}`;
       if (messageTabId) {
         const state = getTabState(messageTabId);
         state.chatHistory = [...chatHistory];
+        persistTabStates();
       }
     }
   }
@@ -1935,10 +1963,10 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
 
   // Append temporary loading placeholder assistant bubble if targetTabId is active
   const assistantBubble = document.createElement("div");
-  assistantBubble.className = "message assistant";
+  assistantBubble.className = "message assistant agent-message";
   assistantBubble.innerHTML = `
     <span class="message-sender">Lens</span>
-    <div class="message-bubble">
+    <div class="message-bubble agent-bubble">
       <div class="stream-loading">
         <span class="dot"></span>
         <span class="dot"></span>
@@ -1958,7 +1986,7 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
 
   // Register the stream bubble immediately in the target tab's history
   const targetState = getTabState(targetTabId);
-  const assistantMsgObj = { role: "assistant", content: "" };
+  const assistantMsgObj = { role: "assistant", content: "", isAgentComplete: false };
   targetState.chatHistory.push(assistantMsgObj);
   if (targetTabId === currentTabId) {
     chatHistory = [...targetState.chatHistory];
@@ -2409,6 +2437,12 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
     }
 
     activeReader = null;
+    assistantMsgObj.isAgentComplete = true;
+    if (targetTabId === currentTabId) {
+      saveActiveTabState();
+    } else {
+      persistTabStates();
+    }
 
   } catch (err) {
     console.error("ContextLens AI stream failed:", err);
@@ -2439,6 +2473,12 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
       }
     }
     activeReader = null;
+    assistantMsgObj.isAgentComplete = true;
+    if (targetTabId === currentTabId) {
+      saveActiveTabState();
+    } else {
+      persistTabStates();
+    }
   }
 }
 
@@ -2519,65 +2559,81 @@ function splitAgentOutput(text, isComplete = false) {
 function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agentLabel) {
   if (!bubbleEl) return;
 
+  // Detect if this is an agent response (has agentLabel or systemLogsText)
+  const isAgentResponse = !!(agentLabel || systemLogsText !== null);
   const { promptContext, actualAnswer } = splitAgentOutput(text, isComplete);
   let html = "";
 
+  // ── BLOCK 1: Prompt context card (collapsible) ──────────────────────────────
   if (promptContext) {
-    const isOpen = !actualAnswer;
-    const summaryText = "📋 输入上下文与任务步骤";
+    const isOpen = !actualAnswer && !isComplete;
     html += `
-      <details class="agent-context-block" style="margin: 4px 0 8px 0; border: 1px solid rgba(99, 102, 241, 0.12); border-radius: 8px; background: rgba(99, 102, 241, 0.02); font-size: 12px; width: 100%; box-sizing: border-box;" ${isOpen ? "open" : ""}>
-        <summary style="padding: 6px 10px; cursor: pointer; color: #6366f1; font-weight: 600; user-select: none; display: flex; align-items: center; justify-content: space-between;">
-          <span>${summaryText}</span>
-          <span class="agent-context-toggle" style="font-size: 10px; opacity: 0.6;">${isOpen ? "▼ 折叠" : "▶ 展开"}</span>
+      <details class="agent-block agent-prompt-card" ${isOpen ? "open" : ""}>
+        <summary class="agent-block-header">
+          <span class="agent-block-icon">📋</span>
+          <span class="agent-block-title">输入上下文与任务步骤</span>
+          <span class="agent-block-toggle">${isOpen ? "▼ 折叠" : "▶ 展开"}</span>
         </summary>
-        <div class="agent-context-content" style="padding: 8px 12px; line-height: 1.5; color: var(--text-secondary); border-top: 1px solid rgba(99, 102, 241, 0.08); white-space: pre-wrap; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto;">${escapeHTML(promptContext)}</div>
+        <div class="agent-block-body agent-prompt-body">${escapeHTML(promptContext)}</div>
       </details>
     `;
   }
 
-  if (systemLogsText || !isComplete) {
+  // ── BLOCK 2: Execution log card (collapsible, status-aware) ─────────────────
+  if (systemLogsText !== null || !isComplete) {
     const displayLabel = agentLabel || "本地 Agent";
-    const headerColor = isComplete ? "#10b981" : "#6366f1";
-    const bgColor = isComplete ? "rgba(16, 185, 129, 0.04)" : "rgba(99, 102, 241, 0.04)";
-    const borderColor = isComplete ? "#10b981" : "#6366f1";
     const statusText = isComplete ? "Agent 执行完毕" : `${displayLabel} 运行中...`;
     const logDisplay = isComplete ? "none" : "block";
     const toggleIcon = isComplete ? "▶ 展开" : "▼ 折叠";
+    const completedClass = isComplete ? "agent-log-card--done" : "";
 
     html += `
-      <div class="agent-progress" style="margin: 8px 0; padding: 6px 10px; background: ${bgColor}; border-left: 2px solid ${borderColor}; border-radius: 0 4px 4px 0; width: 100%; box-sizing: border-box; font-family: monospace; font-size: 11px;">
-        <div class="agent-status-header" style="font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: ${headerColor}; cursor: pointer; user-select: none;">
-          ${isComplete 
-            ? `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><polyline points="20 6 9 17 4 12"></polyline></svg>`
-            : `<svg class="spinning-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="animation: spin 1s linear infinite; flex-shrink: 0;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`
-          }
-          <span>${statusText}</span>
-          <span class="agent-log-toggle" style="margin-left: auto; font-size: 10px; opacity: 0.7;">${toggleIcon}</span>
+      <div class="agent-block agent-log-card ${completedClass}">
+        <div class="agent-block-header agent-status-header">
+          <span class="agent-block-icon">
+            ${isComplete
+              ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`
+              : `<svg class="spinning-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`
+            }
+          </span>
+          <span class="agent-block-title">${statusText}</span>
+          <span class="agent-log-toggle agent-block-toggle">${toggleIcon}</span>
         </div>
-        <div class="agent-log-content" style="white-space: pre-wrap; max-height: 120px; overflow-y: auto; color: var(--text-secondary); display: ${logDisplay};">${formatAgentLogs(systemLogsText || "正在启动并初始化...")}</div>
+        <div class="agent-block-body agent-log-body agent-log-content" style="display:${logDisplay};">${formatAgentLogs(systemLogsText || "正在启动并初始化...")}</div>
       </div>
     `;
   }
 
-  if (actualAnswer) {
+  // ── BLOCK 3: Result card (agent only) ────────────────────────────────────────
+  if (isAgentResponse && (actualAnswer || (!promptContext && text))) {
+    const resultContent = actualAnswer || text;
     html += `
-      <div class="agent-markdown-content" style="margin-top: 8px; width: 100%;">
-        ${formatMarkdown(actualAnswer)}
-      </div>
-    `;
-  } else if (!promptContext && text) {
-    html += `
-      <div class="agent-markdown-content" style="width: 100%;">
-        ${formatMarkdown(text)}
+      <div class="agent-block agent-result-card">
+        <div class="agent-block-header agent-result-header">
+          <span class="agent-block-icon">✦</span>
+          <span class="agent-block-title">执行结果</span>
+        </div>
+        <div class="agent-block-body agent-result-body">
+          ${formatMarkdown(resultContent)}
+        </div>
       </div>
     `;
   }
 
+  // If no agent blocks produced, render as plain markdown (non-agent response)
+  if (!html) {
+    bubbleEl.innerHTML = text ? formatMarkdown(text) : "";
+    return;
+  }
+
+  // Mark the bubble as agent-layout so CSS strips the default bubble background
+  bubbleEl.classList.add("agent-bubble");
   bubbleEl.innerHTML = html;
 
+  // Bind toggle for execution log card
   const headerEl = bubbleEl.querySelector(".agent-status-header");
   if (headerEl) {
+    headerEl.style.cursor = "pointer";
     headerEl.onclick = () => {
       const log = bubbleEl.querySelector(".agent-log-content");
       const toggle = headerEl.querySelector(".agent-log-toggle");
@@ -2592,17 +2648,18 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
     };
   }
 
-  const contextHeader = bubbleEl.querySelector(".agent-context-block summary");
-  if (contextHeader) {
-    contextHeader.onclick = (e) => {
-      setTimeout(() => {
-        const details = bubbleEl.querySelector(".agent-context-block");
-        const toggle = contextHeader.querySelector(".agent-context-toggle");
-        if (details && toggle) {
-          toggle.textContent = details.hasAttribute("open") ? "▼ 折叠" : "▶ 展开";
-        }
-      }, 50);
-    };
+  // Bind toggle for prompt context card (details element)
+  const contextDetails = bubbleEl.querySelector(".agent-prompt-card");
+  if (contextDetails) {
+    const summaryEl = contextDetails.querySelector("summary");
+    if (summaryEl) {
+      summaryEl.addEventListener("click", () => {
+        setTimeout(() => {
+          const toggle = summaryEl.querySelector(".agent-block-toggle");
+          if (toggle) toggle.textContent = contextDetails.hasAttribute("open") ? "▼ 折叠" : "▶ 展开";
+        }, 50);
+      });
+    }
   }
 }
 
@@ -2612,18 +2669,16 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
 function formatMarkdown(text) {
   if (!text) return "";
 
-  // 0. Extract <think>...</think> blocks before HTML escaping
+  // ─── 0. Extract <think>...</think> blocks before any processing ───────────
   const thinkBlocks = [];
   const THINK_PH = (i) => `CTXLENS_THINK_${i}_PH`;
 
-  // Closed <think>...</think> blocks
   text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (match, content) => {
     const idx = thinkBlocks.length;
     thinkBlocks.push({ content: content.trim(), open: false });
     return THINK_PH(idx);
   });
 
-  // Unclosed <think> block (still streaming)
   const openMatch = text.match(/<think>([\s\S]*)$/i);
   if (openMatch) {
     const idx = thinkBlocks.length;
@@ -2631,64 +2686,186 @@ function formatMarkdown(text) {
     text = text.replace(/<think>[\s\S]*$/i, THINK_PH(idx));
   }
 
-  // Escape HTML tags to prevent XSS
-  let html = text
+  // ─── 1. Extract fenced code blocks to protect them from other transforms ──
+  const codeBlocks = [];
+  const CODE_PH = (i) => `CTXLENS_CODE_${i}_PH`;
+
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+    const idx = codeBlocks.length;
+    const escaped = code
+      .trim()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    codeBlocks.push(`<pre><code class="language-${lang || "text"}">${escaped}</code></pre>`);
+    return CODE_PH(idx);
+  });
+
+  // ─── 2. Escape remaining HTML ─────────────────────────────────────────────
+  text = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-  // 1. Triple-backtick Code blocks: ```js ... ```
-  // Find pairs of ``` and wrap in pre/code blocks
-  const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
-  html = html.replace(codeBlockRegex, (match, lang, code) => {
-    return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
-  });
+  // ─── 3. Collapse 3+ consecutive blank lines to 2 ─────────────────────────
+  text = text.replace(/\n{3,}/g, "\n\n");
 
-  // 2. Inline code: `code`
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // ─── 4. Process line by line for block elements ───────────────────────────
+  const lines = text.split("\n");
+  const outputParts = []; // array of HTML string segments
 
-  // 3. Bold text: **bold**
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // List state
+  let listStack = []; // each entry: { type: 'ul'|'ol', indent: number }
 
-  // 4. Bullet lists: lines starting with "- " or "* "
-  const lines = html.split("\n");
-  let inList = false;
-  const processedLines = [];
-
-  for (let line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-      if (!inList) {
-        processedLines.push('<ul style="margin: 6px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px;">');
-        inList = true;
-      }
-      processedLines.push(`<li>${trimmed.substring(2)}</li>`);
-    } else {
-      if (inList) {
-        processedLines.push("</ul>");
-        inList = false;
-      }
-      processedLines.push(line);
-    }
-  }
-  if (inList) {
-    processedLines.push("</ul>");
-  }
-
-  html = processedLines.join("\n");
-
-  // 5. Normal newlines to <br> (only outside pre blocks)
-  // Simple check: split by `<pre>` and only process paragraphs
-  const parts = html.split(/(<pre>[\s\S]*?<\/pre>)/);
-  for (let i = 0; i < parts.length; i++) {
-    if (!parts[i].startsWith("<pre>")) {
-      parts[i] = parts[i].replace(/\n/g, "<br>");
+  function flushLists(targetDepth = 0) {
+    while (listStack.length > targetDepth) {
+      const closed = listStack.pop();
+      outputParts.push(`</${closed.type}>`);
     }
   }
 
-  html = parts.join("");
+  // Paragraph accumulator
+  let paraLines = [];
 
-  // 6. Restore <think> blocks as collapsible details elements
+  function flushPara() {
+    if (paraLines.length === 0) return;
+    const content = paraLines.join(" ").trim();
+    if (content) {
+      outputParts.push(`<p>${content}</p>`);
+    }
+    paraLines = [];
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+
+    // ── Fenced code block placeholder (restore later) ──
+    const codePHMatch = trimmed.match(/^CTXLENS_CODE_(\d+)_PH$/);
+    if (codePHMatch) {
+      flushPara();
+      flushLists();
+      outputParts.push(codeBlocks[parseInt(codePHMatch[1])]);
+      continue;
+    }
+
+    // ── Think placeholder ──
+    const thinkPHMatch = trimmed.match(/^CTXLENS_THINK_(\d+)_PH$/);
+    if (thinkPHMatch) {
+      flushPara();
+      flushLists();
+      // Will be restored in step 6; push the placeholder back as block
+      outputParts.push(`<div class="think-ph-wrapper">${THINK_PH(parseInt(thinkPHMatch[1]))}</div>`);
+      continue;
+    }
+
+    // ── Blank line: end current paragraph / list when appropriate ──
+    if (trimmed === "") {
+      flushPara();
+      // Don't flush lists on single blank line — lists can have loose items
+      continue;
+    }
+
+    // ── Headings: # h1, ## h2 ... ###### h6 ──
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      flushPara();
+      flushLists();
+      const level = headingMatch[1].length;
+      const content = applyInlineMarkdown(headingMatch[2]);
+      outputParts.push(`<h${level} class="md-h${level}">${content}</h${level}>`);
+      continue;
+    }
+
+    // ── Horizontal rule: --- or *** or ___ (3+ chars) ──
+    if (/^[-*_]{3,}$/.test(trimmed)) {
+      flushPara();
+      flushLists();
+      outputParts.push(`<hr class="md-hr">`);
+      continue;
+    }
+
+    // ── Unordered list item: leading "- " or "* " or "+ " ──
+    const ulMatch = raw.match(/^(\s*)([-*+])\s+(.*)$/);
+    if (ulMatch) {
+      flushPara();
+      const indent = ulMatch[1].length;
+      const content = applyInlineMarkdown(ulMatch[3]);
+
+      // Determine nesting depth (1 level per 2 spaces or 1 tab)
+      const depth = Math.floor(indent / 2) + 1;
+
+      if (listStack.length === 0) {
+        listStack.push({ type: "ul", indent });
+        outputParts.push(`<ul class="md-ul">`);
+      } else {
+        const top = listStack[listStack.length - 1];
+        if (indent > top.indent) {
+          listStack.push({ type: "ul", indent });
+          outputParts.push(`<ul class="md-ul">`);
+        } else if (indent < top.indent) {
+          while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
+            const closed = listStack.pop();
+            outputParts.push(`</${closed.type}>`);
+            outputParts.push(`</li>`);
+          }
+        } else if (top.type !== "ul") {
+          flushLists();
+          listStack.push({ type: "ul", indent });
+          outputParts.push(`<ul class="md-ul">`);
+        }
+      }
+      outputParts.push(`<li>${content}</li>`);
+      continue;
+    }
+
+    // ── Ordered list item: "1. " or "10. " etc ──
+    const olMatch = raw.match(/^(\s*)(\d+)\.\s+(.*)$/);
+    if (olMatch) {
+      flushPara();
+      const indent = olMatch[1].length;
+      const content = applyInlineMarkdown(olMatch[3]);
+
+      if (listStack.length === 0) {
+        listStack.push({ type: "ol", indent });
+        outputParts.push(`<ol class="md-ol">`);
+      } else {
+        const top = listStack[listStack.length - 1];
+        if (indent > top.indent) {
+          listStack.push({ type: "ol", indent });
+          outputParts.push(`<ol class="md-ol">`);
+        } else if (indent < top.indent) {
+          while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
+            const closed = listStack.pop();
+            outputParts.push(`</${closed.type}>`);
+            outputParts.push(`</li>`);
+          }
+        } else if (top.type !== "ol") {
+          flushLists();
+          listStack.push({ type: "ol", indent });
+          outputParts.push(`<ol class="md-ol">`);
+        }
+      }
+      outputParts.push(`<li>${content}</li>`);
+      continue;
+    }
+
+    // ── Normal text line: accumulate into paragraph ──
+    // If we're inside a list but encounter a non-list line, it's a continuation
+    if (listStack.length > 0) {
+      // Likely a loose paragraph inside a list — close list first
+      flushLists();
+    }
+    paraLines.push(applyInlineMarkdown(trimmed));
+  }
+
+  // Flush anything remaining
+  flushPara();
+  flushLists();
+
+  let html = outputParts.join("\n");
+
+  // ─── 5. Restore think placeholders inside wrapper divs ────────────────────
   for (let i = 0; i < thinkBlocks.length; i++) {
     const block = thinkBlocks[i];
     let escapedContent = block.content
@@ -2696,26 +2873,47 @@ function formatMarkdown(text) {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
-    escapedContent = escapedContent.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
-    escapedContent = escapedContent.replace(/`([^`]+)`/g, "<code>$1</code>");
-    escapedContent = escapedContent.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-
-    const tParts = escapedContent.split(/(<pre>[\s\S]*?<\/pre>)/);
-    for (let j = 0; j < tParts.length; j++) {
-      if (!tParts[j].startsWith("<pre>")) {
-        tParts[j] = tParts[j].replace(/\n/g, "<br>");
-      }
-    }
-    escapedContent = tParts.join("");
+    // Apply inline formatting to think content
+    escapedContent = escapedContent.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+      const ec = code.trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return `<pre><code class="language-${lang || "text"}">${ec}</code></pre>`;
+    });
+    escapedContent = applyInlineMarkdown(escapedContent);
+    escapedContent = escapedContent.replace(/\n/g, "<br>");
 
     const thinkHTML = block.open
       ? `<details class="think-block" open><summary>💭 思考中...</summary><div class="think-content">${escapedContent}</div></details>`
       : `<details class="think-block"><summary>💭 思考过程</summary><div class="think-content">${escapedContent}</div></details>`;
+
+    html = html.replace(`<div class="think-ph-wrapper">${THINK_PH(i)}</div>`, thinkHTML);
+    // Also handle inline think placeholders
     html = html.replace(THINK_PH(i), thinkHTML);
   }
 
   return html;
 }
+
+// Apply inline markdown: bold, italic, inline code, strikethrough
+function applyInlineMarkdown(text) {
+  if (!text) return "";
+  // Inline code (do first to avoid treating `` content as bold/italic)
+  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // Bold + italic: ***text***
+  text = text.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+  // Bold: **text**
+  text = text.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  // Bold: __text__
+  text = text.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+  // Italic: *text*
+  text = text.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  // Italic: _text_
+  text = text.replace(/_([^_\n]+)_/g, "<em>$1</em>");
+  // Strikethrough: ~~text~~
+  text = text.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  return text;
+}
+
+
 
 // Format local agent system logs into collapsible UI elements
 function formatAgentLogs(text) {

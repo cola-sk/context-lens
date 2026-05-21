@@ -203,6 +203,16 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 });
 
 // Clean up set on tab closure
-chrome.tabs.onRemoved.addListener((tabId) => {
+chrome.tabs.onRemoved.addListener(async (tabId) => {
   activeSidePanelTabs.delete(tabId);
+  try {
+    const result = await chrome.storage.local.get("tabStates");
+    if (result.tabStates && result.tabStates[tabId]) {
+      delete result.tabStates[tabId];
+      await chrome.storage.local.set({ tabStates: result.tabStates });
+      console.log(`🔮 [ContextLens Background] Cleaned up persisted tabState for closed tab ${tabId}`);
+    }
+  } catch (err) {
+    console.error("🔮 [ContextLens Background] Failed to clean up closed tab state:", err);
+  }
 });

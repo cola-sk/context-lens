@@ -472,6 +472,13 @@ body.dark-theme {
   align-self: flex-start;
 }
 
+/* Agent messages take full available width */
+.message.agent-message {
+  max-width: 100%;
+  width: 100%;
+  align-self: stretch;
+}
+
 .message-bubble {
   padding: 12px 14px;
   border-radius: 16px;
@@ -493,6 +500,160 @@ body.dark-theme {
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.01);
+}
+
+/* Agent bubble: transparent wrapper, no shared background */
+.assistant .message-bubble.agent-bubble {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+/* ── Agent Card Blocks ────────────────────────────────────── */
+.agent-block {
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.55;
+  word-wrap: break-word;
+}
+
+/* Shared header bar for all agent blocks */
+.agent-block-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 12px;
+  user-select: none;
+}
+
+.agent-block-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.agent-block-title {
+  flex: 1;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.agent-block-toggle {
+  font-size: 10px;
+  opacity: 0.65;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Shared body for all agent blocks */
+.agent-block-body {
+  padding: 10px 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* ── Block 1: Prompt Context (collapsible) ── */
+.agent-prompt-card {
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.agent-prompt-card > .agent-block-header {
+  color: #6366f1;
+  cursor: pointer;
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.agent-prompt-card > .agent-block-header:hover {
+  background: rgba(99, 102, 241, 0.07);
+}
+
+.agent-prompt-body {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* ── Block 2: Execution Log (running / done) ── */
+.agent-log-card {
+  border: 1px solid rgba(99, 102, 241, 0.14);
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.agent-log-card > .agent-block-header {
+  color: #6366f1;
+  cursor: pointer;
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.agent-log-card > .agent-block-header:hover {
+  background: rgba(99, 102, 241, 0.09);
+}
+
+/* Completed state: green palette */
+.agent-log-card.agent-log-card--done {
+  border-color: rgba(16, 185, 129, 0.2);
+  background: rgba(16, 185, 129, 0.025);
+}
+
+.agent-log-card.agent-log-card--done > .agent-block-header {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.agent-log-card.agent-log-card--done > .agent-block-header:hover {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.agent-log-body {
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* ── Block 3: Result Card ── */
+.agent-result-card {
+  border: 1px solid rgba(79, 70, 229, 0.18);
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.06);
+}
+
+.agent-result-card > .agent-result-header {
+  color: #4f46e5;
+  background: linear-gradient(90deg, rgba(79, 70, 229, 0.07) 0%, rgba(124, 58, 237, 0.04) 100%);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+.agent-result-body {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+/* Remove default browser triangle from prompt details/summary */
+.agent-prompt-card > summary {
+  list-style: none;
+}
+.agent-prompt-card > summary::-webkit-details-marker {
+  display: none;
 }
 
 /* Styled inline code block inside bubble */
@@ -519,6 +680,99 @@ body.dark-theme {
   background: none;
   padding: 0;
   color: #0369a1; /* clear sky-700 for light pre-code block */
+}
+
+/* ── Rendered Markdown Typography ─────────────────────────────────────── */
+
+/* Paragraphs */
+.message-bubble p, .agent-result-body p {
+  margin: 0 0 10px 0;
+  line-height: 1.65;
+}
+.message-bubble p:last-child, .agent-result-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Headings */
+.message-bubble h1, .agent-result-body h1,
+.message-bubble .md-h1, .agent-result-body .md-h1 {
+  font-size: 17px; font-weight: 700; margin: 14px 0 8px;
+  color: var(--text-primary); letter-spacing: -0.01em; line-height: 1.3;
+}
+.message-bubble h2, .agent-result-body h2,
+.message-bubble .md-h2, .agent-result-body .md-h2 {
+  font-size: 15px; font-weight: 700; margin: 12px 0 6px;
+  color: var(--text-primary); letter-spacing: -0.01em; line-height: 1.35;
+}
+.message-bubble h3, .agent-result-body h3,
+.message-bubble .md-h3, .agent-result-body .md-h3 {
+  font-size: 13.5px; font-weight: 600; margin: 10px 0 5px;
+  color: var(--accent-indigo); line-height: 1.4;
+}
+.message-bubble h4, .agent-result-body h4,
+.message-bubble .md-h4, .agent-result-body .md-h4 {
+  font-size: 13px; font-weight: 600; margin: 8px 0 4px;
+  color: var(--text-primary); line-height: 1.4;
+}
+.message-bubble h5, .agent-result-body h5,
+.message-bubble .md-h5, .agent-result-body .md-h5,
+.message-bubble h6, .agent-result-body h6,
+.message-bubble .md-h6, .agent-result-body .md-h6 {
+  font-size: 12.5px; font-weight: 600; margin: 6px 0 4px;
+  color: var(--text-muted); line-height: 1.4;
+}
+
+/* Unordered lists */
+.message-bubble ul, .agent-result-body ul,
+.message-bubble .md-ul, .agent-result-body .md-ul {
+  margin: 6px 0 10px 0;
+  padding-left: 20px;
+  list-style-type: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.message-bubble ul ul, .agent-result-body ul ul {
+  margin: 3px 0 0 0;
+  list-style-type: circle;
+}
+
+/* Ordered lists */
+.message-bubble ol, .agent-result-body ol,
+.message-bubble .md-ol, .agent-result-body .md-ol {
+  margin: 6px 0 10px 0;
+  padding-left: 22px;
+  list-style-type: decimal;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.message-bubble ol ol, .agent-result-body ol ol {
+  margin: 3px 0 0 0;
+}
+
+/* List items */
+.message-bubble li, .agent-result-body li {
+  line-height: 1.6;
+  padding-left: 2px;
+}
+
+/* Horizontal rule */
+.message-bubble hr, .agent-result-body hr,
+.message-bubble .md-hr, .agent-result-body .md-hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 14px 0;
+}
+
+/* Italic & strikethrough */
+.message-bubble em, .agent-result-body em { font-style: italic; }
+.message-bubble s, .agent-result-body s { opacity: 0.55; text-decoration: line-through; }
+
+/* Strong */
+.message-bubble strong, .agent-result-body strong {
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 /* Think block (<think> tag from reasoning models) */
@@ -1083,6 +1337,11 @@ body.dark-theme {
 
 @keyframes spin {
   100% { transform: rotate(360deg); }
+}
+
+.spinning-icon {
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
 }
 
 .toggle-mode-btn {
