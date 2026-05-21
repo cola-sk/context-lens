@@ -6,6 +6,33 @@ let activeSidePanelTabs = new Set();
 // Cache of the latest right-clicked context per tab
 let tabRightClickContexts = {};
 
+function buildFallbackContextFromMenuInfo(info, tab) {
+  const fallbackText = (
+    info.selectionText ||
+    info.linkUrl ||
+    info.srcUrl ||
+    tab?.title ||
+    info.pageUrl ||
+    tab?.url ||
+    ""
+  ).trim();
+  if (!fallbackText) return null;
+
+  return {
+    selectedText: fallbackText,
+    contentType: "text",
+    surroundingBefore: "",
+    surroundingAfter: "",
+    parentHeading: "",
+    semanticPath: "",
+    pageDescription: "",
+    fullPageSimplifiedText: "",
+    pageUrl: info.pageUrl || tab?.url || "",
+    frameUrl: info.frameUrl || "",
+    source: "context-menu-fallback"
+  };
+}
+
 // Disable side panel globally by default on background script startup
 chrome.sidePanel.setOptions({
   enabled: false
@@ -119,9 +146,38 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
                 files: ["content.css"]
               });
               console.log("🔮 [ContextLens Background] Dynamically self-healed and injected content script into frame!");
+
+              // Retry once after dynamic injection so first interaction on a freshly-opened page
+              // can still capture rich context instead of falling back to empty payload.
+              try {
+                const retried = await chrome.tabs.sendMessage(
+                  tab.id,
+                  { type: "GET_RICH_CONTEXT" },
+                  { frameId: info.frameId }
+                );
+                if (retried && retried.success && retried.contextData) {
+                  selectionPayload.contextData = retried.contextData;
+                  if (!selectionPayload.text && retried.contextData.selectedText) {
+                    selectionPayload.text = retried.contextData.selectedText;
+                  }
+                }
+              } catch (retryErr) {
+                console.log("🔮 [ContextLens Background] Retry after injection still failed:", retryErr.message);
+              }
             } catch (injectErr) {
               console.warn("🔮 [ContextLens Background] Self-healing injection failed:", injectErr);
             }
+          }
+        }
+
+        if (!selectionPayload.contextData) {
+          const fallbackContext = buildFallbackContextFromMenuInfo(info, tab);
+          if (fallbackContext) {
+            selectionPayload.contextData = fallbackContext;
+            if (!selectionPayload.text) {
+              selectionPayload.text = fallbackContext.selectedText;
+            }
+            console.log("🔮 [ContextLens Background] Using context-menu fallback context.");
           }
         }
       }

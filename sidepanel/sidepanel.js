@@ -220,7 +220,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const sessionData = await chrome.storage.session.get("lastSelection");
   if (sessionData.lastSelection) {
-    handleNewSelection(sessionData.lastSelection, false); // rehydration — preserve history
+    // If the selection was set very recently (< 5 seconds), the background script just
+    // fired a new user-triggered action (right-click / floating button). In that case
+    // treat it as a new interaction so the chat history is cleared and the panel shows
+    // fresh context.  This fixes a race condition where the storage.session.onChanged
+    // listener was not yet registered when the background wrote the value, so the
+    // onChanged event never fired and the rehydration path was the only one executed —
+    // wrongly preserving old history (isNewInteraction=false).
+    const selectionAgeMs = Date.now() - (sessionData.lastSelection.timestamp || 0);
+    const isFreshUserAction = selectionAgeMs < 5000;
+    handleNewSelection(sessionData.lastSelection, isFreshUserAction);
   } else {
     rebuildUIForActiveTab();
   }
@@ -2142,7 +2151,7 @@ async function triggerAIStreamResponse(promptText, messageTabId) {
 
       // Compile chat history messages
       const messages = [{ role: "system", content: systemContent }];
-      
+
       // Add existing chat logs (excluding the final assistant streaming bubble)
       for (let i = 0; i < chatHistory.length - 1; i++) {
         messages.push({ role: chatHistory[i].role, content: chatHistory[i].content });
@@ -2563,7 +2572,8 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
   if (!bubbleEl) return;
 
   // Detect if this is an agent response (has agentLabel or systemLogsText)
-  const isAgentResponse = !!(agentLabel || systemLogsText !== null);
+  const hasSystemLogs = typeof systemLogsText === "string";
+  const isAgentResponse = !!(agentLabel || hasSystemLogs);
   const { promptContext, actualAnswer } = splitAgentOutput(text, isComplete);
   let html = "";
 
@@ -2583,7 +2593,7 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
   }
 
   // ── BLOCK 2: Execution log card (collapsible, status-aware) ─────────────────
-  if (systemLogsText !== null || !isComplete) {
+  if (isAgentResponse && (hasSystemLogs || !isComplete)) {
     const displayLabel = agentLabel || "本地 Agent";
     const statusText = isComplete ? "Agent 执行完毕" : `${displayLabel} 运行中...`;
     const logDisplay = isComplete ? "none" : "block";
@@ -2625,6 +2635,16 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
 
   // If no agent blocks produced, render as plain markdown (non-agent response)
   if (!html) {
+    if (!isAgentResponse && !isComplete && !text) {
+      bubbleEl.innerHTML = `
+        <div class="stream-loading">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+      `;
+      return;
+    }
     bubbleEl.innerHTML = text ? formatMarkdown(text) : "";
     return;
   }
