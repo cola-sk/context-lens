@@ -8,7 +8,7 @@
   align-items: center !important;
   justify-content: center !important;
   gap: 0 !important;
-  padding: 8px !important;
+  padding: 3px 6px !important;
   
   /* Reset styles to isolate from host website's pollution */
   margin: 0 !important;
@@ -25,7 +25,7 @@
   color: #4f46e5 !important; /* indigo-600 */
   background: #ffffff !important;
   border: 1px solid rgba(79, 70, 229, 0.15) !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
   
   /* Box Shadow */
   box-shadow:

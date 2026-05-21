@@ -292,7 +292,7 @@ function createFloatingButton() {
   
   // High-tech lens SVG icon
   floatBtn.innerHTML = `
-    <img src="${chrome.runtime.getURL('icons/icon-floating.png')}" style="width: 20px; height: 20px; pointer-events: none; border-radius: 4px;" alt="ContextLens" />
+    <img src="${chrome.runtime.getURL('icons/icon-floating.png')}" style="width: 36px; height: auto; pointer-events: none;" alt="ContextLens" />
   `;
 
   floatBtn.addEventListener("click", handleButtonClick);
@@ -356,10 +356,10 @@ function showButtonAtSelection(selection) {
     
     // Viewport-relative coordinates + scroll offset
     const viewportTop = rect.bottom + window.scrollY + 8;
-    const viewportLeft = rect.right + window.scrollX - 60;
+    const viewportLeft = rect.right + window.scrollX - 30;
 
-    const btnWidth = 80;
-    const btnHeight = 28;
+    const btnWidth = 48;
+    const btnHeight = 27;
     const maxLeft = window.innerWidth + window.scrollX - btnWidth - 16;
     const minLeft = window.scrollX + 16;
     
