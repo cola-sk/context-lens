@@ -5,8 +5,30 @@ let currentSelectionText = "";
 let currentSelectionContext = null; // Caches rich DOM context on selection mouseup
 let lastRightClickElement = null;
 let lastRightClickContext = null; // Caches rich DOM context on right click
+let cachedUiLanguage = null;
 
 console.log("🔮 [ContextLens] Content script loaded successfully! Ready to capture text selections with DOM context.");
+
+function getNavigatorFallbackLanguage() {
+  const lang = (navigator.language || "").toLowerCase();
+  return lang.startsWith("zh") ? "zh" : "en";
+}
+
+async function getUiLanguage() {
+  if (cachedUiLanguage) return cachedUiLanguage;
+  try {
+    const result = await chrome.storage.local.get(["uiLanguage"]);
+    cachedUiLanguage = result.uiLanguage === "en" ? "en" : "zh";
+  } catch (e) {
+    cachedUiLanguage = getNavigatorFallbackLanguage();
+  }
+  return cachedUiLanguage;
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.uiLanguage) return;
+  cachedUiLanguage = changes.uiLanguage.newValue === "en" ? "en" : "zh";
+});
 
 // --- RICH DOM CONTEXT EXTRACTORS ---
 
@@ -620,7 +642,7 @@ async function handleButtonClick(e) {
   } catch (err) {
     if (err.message && err.message.includes("context invalidated")) {
       console.warn("🔮 [ContextLens] Extension context was invalidated (extension reloaded/updated). Guiding user to refresh.");
-      showInvalidatedToast();
+      void showInvalidatedToast();
     } else {
       console.error("❌ [ContextLens] Failed to message background script:", err);
     }
@@ -632,8 +654,13 @@ async function handleButtonClick(e) {
 }
 
 // Show a sleek, premium toast instructing the user to refresh the page
-function showInvalidatedToast() {
+async function showInvalidatedToast() {
   if (document.getElementById("contextlens-invalidated-toast")) return;
+  const uiLanguage = await getUiLanguage();
+  const refreshNoticeText = uiLanguage === "en"
+    ? "ContextLens has been updated or reloaded. <strong>Please refresh this page</strong> to continue."
+    : "ContextLens 已更新或重新加载。<strong>请刷新当前网页</strong>以继续使用。";
+  const refreshBtnText = uiLanguage === "en" ? "Refresh Page" : "刷新页面";
 
   const toast = document.createElement("div");
   toast.id = "contextlens-invalidated-toast";
@@ -667,7 +694,7 @@ function showInvalidatedToast() {
       <line x1="12" y1="8" x2="12" y2="12"/>
       <line x1="12" y1="16" x2="12.01" y2="16"/>
     </svg>
-    <span style="line-height: 1.4;">ContextLens 已更新或重新加载。<strong>请刷新当前网页</strong>以继续使用。</span>
+    <span style="line-height: 1.4;">${refreshNoticeText}</span>
     <button id="contextlens-toast-refresh-btn" style="
       background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
       border: none !important;
@@ -680,7 +707,7 @@ function showInvalidatedToast() {
       margin-left: 4px !important;
       box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3) !important;
       transition: all 0.2s ease !important;
-    ">刷新页面</button>
+    ">${refreshBtnText}</button>
   `;
 
   document.body.appendChild(toast);

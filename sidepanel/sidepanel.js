@@ -45,6 +45,7 @@ let activeReader = null; // Current stream reader to abort if needed
 let activeAbortController = null; // Abort controller for pending fetch before reader is ready
 let isRequestInProgress = false; // Global running state for current streaming request
 let userAbortRequested = false; // Whether user clicked stop during current request
+let uiLanguage = "zh"; // "zh" | "en"
 let customModels = []; // Legacy cache (kept for backward compat with rules)
 let addedProviderModels = {
   gemini: [],
@@ -153,6 +154,7 @@ const modelQuickPopover = document.getElementById("model-quick-popover");
 const modelQuickCloseBtn = document.getElementById("model-quick-close");
 const modelQuickCurrentDomain = document.getElementById("model-quick-current-domain");
 const modelQuickList = document.getElementById("model-quick-list");
+const languageToggleBtn = document.getElementById("language-toggle");
 
 const SEND_BUTTON_ICON = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -161,7 +163,413 @@ const SEND_BUTTON_ICON = `
   </svg>
 `;
 const STOP_BUTTON_ICON = `<span class="stop-square-icon" aria-hidden="true"></span>`;
-const USER_STOP_MESSAGE = "⏹️ 已中断当前请求。";
+
+const I18N = {
+  zh: {
+    "header.settings_title": "AI 服务设置",
+    "header.lang_button": "中文 / EN",
+    "header.switch_to_en": "Switch to English",
+    "header.switch_to_zh": "切换到中文",
+    "welcome.title": "已准备就绪，静待探索",
+    "welcome.desc": "在网页上选中任何文本，点击悬浮的 <strong>Lens</strong> 按钮或右键选择 Ask ContextLens，插件将提取深度 DOM 上下文并为您提供精辟的 AI 解答。",
+    "welcome.step1": "在网页上划词选中任意文本",
+    "welcome.step2": "点击悬浮 Lens 按钮或右键菜单",
+    "welcome.step3": "在此面板与 AI 展开无缝对话",
+    "welcome.configure_btn": "配置 AI 服务设置",
+    "context.selected_text": "选中的网页文本",
+    "context.clear_title": "清除选区",
+    "context.clear_btn": "清除",
+    "context.insights_badge": "上下文视窗",
+    "context.full_page_label": "💡 附加完整文章上下文",
+    "settings.drawer_title": "AI 服务端配置",
+    "settings.tab_general": "基本配置",
+    "settings.tab_rules": "自动切换规则",
+    "settings.available_models": "可用模型",
+    "settings.refresh_agents_title": "重新探测本地 Agent",
+    "settings.add_api_model": "添加 API 模型",
+    "settings.detecting_agents": "正在探测本地 Agent...",
+    "settings.temperature": "温度 / 创造力 (Temperature)",
+    "settings.save_active_model": "保存激活模型",
+    "rules.title": "URL 自动切换规则",
+    "rules.add_btn": "添加新规则",
+    "rules.editor_add_title": "添加规则",
+    "rules.name_label": "规则名称",
+    "rules.name_placeholder": "例如: Github Project A",
+    "rules.pattern_label": "URL 匹配规则 (支持 * 通配符)",
+    "rules.pattern_placeholder": "例如: *github.com/my-org/*",
+    "rules.pattern_tip": "支持 `*` 匹配任意字符。例如 `*github.com/*` 或 `*localhost:3000/*`",
+    "rules.provider_label": "选择模型",
+    "rules.refresh_agents_btn": "🔄 刷新本地 Agent",
+    "rules.provider_tip": "从已配置的模型列表中选择。当前规则命中时将自动使用该模型。",
+    "rules.cwd_label": "本地项目绝对路径 (CWD)",
+    "rules.cwd_placeholder": "例如: /Users/liuzhe.x/coding/ContextLens",
+    "rules.cwd_tip": "只在选择本地 Agent 时生效。指定该规则命中时的本地工作区路径。",
+    "rules.save_btn": "保存规则",
+    "rules.edit_btn": "编辑",
+    "rules.delete_btn": "删除",
+    "rules.empty_title": "暂无自动切换规则",
+    "rules.empty_desc": "添加规则可在访问特定网站时自动切换 AI 供应商和工作路径",
+    "rules.meta_provider": "供应商",
+    "rules.meta_model": "模型",
+    "rules.meta_workspace": "工作区:",
+    "rules.move_up_title": "上移 (提高优先级)",
+    "rules.move_down_title": "下移 (降低优先级)",
+    "rules.edit_rule_title": "编辑规则",
+    "rules.delete_rule_title": "删除规则",
+    "rules.pattern_title": "匹配模式",
+    "rules.matched_rule": "已按 URL 匹配规则: {name}",
+    "rules.provider_custom": "自定义",
+    "rules.delete_confirm": "确定要删除规则 \"{name}\" 吗？",
+    "rules.editor_edit_title": "编辑规则",
+    "rules.group_api_models": "已配置的 API 模型",
+    "rules.group_local_agents": "本地 Agent",
+    "common.cancel": "取消",
+    "footer.cwd_warning": "本地 Agent 未配置工作目录。",
+    "footer.create_global_rule": "👉 创建全局规则",
+    "footer.model_not_configured": "未配置 AI 模型",
+    "quick.title": "当前页面快速模型切换",
+    "quick.domain": "域名",
+    "chat.placeholder_send": "输入后续提问... (Ctrl + Enter 发送)",
+    "chat.send_title": "发送",
+    "chat.send_aria": "发送消息",
+    "modal.title_configure": "配置 API 模型",
+    "modal.provider_label": "选择供应商 (Provider)",
+    "modal.provider_custom": "自定义",
+    "modal.display_name": "显示名称",
+    "modal.display_name_placeholder": "例如: Gemini 2.5 Flash",
+    "modal.api_key": "API 密钥",
+    "modal.api_key_placeholder": "请输入您的 API 密钥",
+    "modal.base_url": "基准地址 (Base URL)",
+    "modal.base_url_placeholder": "例如 http://localhost:11434/v1",
+    "modal.base_url_tip": "兼容 OpenAI 规范的 API 基准地址",
+    "modal.model_id": "模型标识符",
+    "modal.sync_models_title": "从 API 同步模型列表",
+    "modal.model_id_placeholder": "例如 gemini-2.5-flash, gpt-4o-mini",
+    "modal.save_model": "保存模型",
+    "chat.stop_title": "中断请求",
+    "chat.stop_aria": "中断请求",
+    "chat.running_placeholder": "模型正在执行中，点击红色方块可中断请求...",
+    "chat.ask_placeholder": "针对所选上下文进行提问... (Ctrl + Enter 发送)",
+    "chat.need_api_key": "请配置 API 密钥...",
+    "chat.need_model": "请先在设置中选择并保存一个模型...",
+    "status.model_no_key": "未配置 API 密钥",
+    "status.model_not_set": "未配置 AI 模型",
+    "status.temporary_suffix": "（临时）",
+    "settings.bridge_not_connected": "Bridge 未连接",
+    "model.badge_local": "本地",
+    "model.badge_unavailable": "未安装",
+    "model.local_cli": "本地 CLI",
+    "model.not_installed": "未安装",
+    "model.edit_title": "编辑",
+    "model.delete_title": "删除",
+    "model.need_cli": "需要安装此 CLI 工具或启动 Bridge",
+    "quick.current_page": "当前页面",
+    "quick.restore_title": "恢复正式规则模型",
+    "quick.restore_desc": "撤销当前页面临时模型，回到 URL 规则或默认模型",
+    "quick.restore_btn": "恢复",
+    "quick.empty": "暂无可切换模型，请先在基本配置中添加模型。",
+    "quick.current": "当前",
+    "quick.temp_switch": "本页临时切换",
+    "quick.create_rule": "建域名规则",
+    "settings.select_model_first": "请先点击选择一个模型！",
+    "settings.saved_applying": "已保存！正在应用...",
+    "modal.hint_gemini": "常用: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash",
+    "modal.hint_openai": "常用: gpt-4o, gpt-4o-mini, gpt-4-turbo",
+    "modal.hint_claude": "常用: claude-3-5-sonnet-latest, claude-3-haiku-20240307",
+    "modal.hint_custom": "需要填写 Base URL。兼容 OpenAI 格式的服务（如 Ollama, LM Studio）",
+    "modal.title_add": "添加 API 模型",
+    "modal.add_btn": "添加",
+    "modal.title_edit": "编辑模型配置",
+    "modal.save_btn": "保存",
+    "modal.validation_model": "请填写模型标识符！",
+    "modal.validation_key": "请填写 API 密钥！",
+    "modal.validation_url": "自定义 API 必须填写 Base URL！",
+    "modal.input_base_url_first": "请先输入您的自定义 API 基准地址 (Base URL)。",
+    "modal.syncing_models": "正在同步模型列表...",
+    "modal.manual_input": "🖊️ 手动输入...",
+    "modal.sync_success": "✓ 成功同步了 {count} 个模型！",
+    "modal.sync_failed": "✗ 同步失败：{error}",
+    "rules.default_workspace_name": "默认全局工作区",
+    "rules.validation_required": "请填写所有必填字段",
+    "rules.validation_model": "请选择有效的模型",
+    "chat.user_label": "您",
+    "chat.user_stopped": "⏹️ 已中断当前请求。",
+    "chat.config_incomplete": "⚠️ ContextLens 尚未完成配置。请点击右上角打开 AI 服务端配置面板，填写您的 API 密钥并保存！",
+    "settings.model_cards_bridge_offline": "Bridge 未连接（本地 Agent 不可用）· {apiCount} 个 API 模型",
+    "settings.model_cards_summary": "{localCount} 个本地 Agent · {apiCount} 个 API 模型",
+    "settings.no_models_title": "尚无可用模型",
+    "settings.no_models_desc": "点击右上角「添加 API 模型」配置 Gemini/OpenAI 等 API 密钥，或启动 Bridge 服务以自动探测本地 Agent",
+    "context.webpage_fallback": "网页",
+    "context.page_summary": "网页摘要",
+    "context.dom_semantic_path": "DOM 语义路径",
+    "context.parent_heading": "所属父级主题 / 章节",
+    "context.code_context": "代码上下文",
+    "context.enclosing_code_block": "包围代码块",
+    "context.table_context": "表格上下文",
+    "context.enclosing_table_markdown": "包围表格 Markdown",
+    "context.paragraph_context": "段落上下文",
+    "context.enclosing_paragraph_context": "包围段落上下文",
+    "context.full_article_body": "完整文章正文 (将作为附加文章上下文发送给 Agent)",
+    "model.list_empty": "暂无配置的模型，请点击右上角「添加」按钮添加模型",
+    "model.delete_custom_title": "删除此自定义模型",
+    "chat.local_bridge_error": "本地 Bridge 返回错误: {status}",
+    "chat.local_agent": "本地 Agent",
+    "chat.local_agent_named": "本地 {name}",
+    "chat.local_agent_claude": "本地 Claude Code CLI",
+    "chat.local_agent_codex": "本地 Codex CLI",
+    "chat.local_agent_gemini": "本地 Gemini CLI",
+    "chat.initializing_agent": "正在启动并初始化{agent}...",
+    "chat.request_failed": "⚠️ API 请求发送失败: {error}",
+    "chat.network_error": "网络错误。",
+    "chat.request_failed_title": "API 请求发送失败",
+    "chat.unknown_network_error": "发生未知网络连接错误。请检查您的网络连接、API 密钥以及自定义服务端基准地址是否正确。",
+    "chat.bridge_connect_failed_title": "无法连接到本地 Bridge 服务",
+    "chat.bridge_connect_failed_desc": "请确认您已在项目目录下执行下列命令启动 Bridge 服务：<br>{command}<br><br>错误信息: {error}",
+    "agent.prompt_context_title": "输入上下文与任务步骤",
+    "agent.status_completed": "Agent 执行完毕",
+    "agent.status_running": "运行中...",
+    "agent.initializing": "正在启动并初始化...",
+    "agent.result_title": "执行结果",
+    "common.collapse": "▼ 折叠",
+    "common.expand": "▶ 展开",
+    "think.summary_running": "💭 思考中...",
+    "think.summary_done": "💭 思考过程",
+    "log.thinking_summary": "💭 思考过程",
+    "log.tool_call_summary": "🔧 调用工具",
+    "log.tool_params_label": "参数",
+    "log.tool_result_summary": "➡️ 工具执行结果",
+    "log.tool_error_summary": "❌ 工具执行失败",
+    "rules.provider_local_agent": "本地 Agent",
+    "rules.default_gemini_api": "Google Gemini 官方 API",
+    "rules.default_openai_api": "OpenAI 官方 API",
+    "rules.default_claude_api": "Anthropic Claude 官方 API",
+    "rules.default_claude_agent": "Claude Code 本地 Agent",
+    "rules.default_codex_agent": "Codex CLI 本地 Agent",
+    "rules.default_gemini_agent": "Gemini CLI 本地 Agent"
+  },
+  en: {
+    "header.settings_title": "AI Service Settings",
+    "header.lang_button": "ZH / English",
+    "header.switch_to_en": "Switch to English",
+    "header.switch_to_zh": "Switch to Chinese",
+    "welcome.title": "Ready to Explore",
+    "welcome.desc": "Select any text on the webpage, then click the floating <strong>Lens</strong> button or choose Ask ContextLens from right-click menu. The extension extracts deep DOM context and provides precise AI answers.",
+    "welcome.step1": "Select any text on a webpage",
+    "welcome.step2": "Click the floating Lens button or context menu",
+    "welcome.step3": "Continue the conversation with AI in this panel",
+    "welcome.configure_btn": "Configure AI Services",
+    "context.selected_text": "Selected Webpage Text",
+    "context.clear_title": "Clear selection",
+    "context.clear_btn": "Clear",
+    "context.insights_badge": "Context View",
+    "context.full_page_label": "💡 Attach full article context",
+    "settings.drawer_title": "AI Service Configuration",
+    "settings.tab_general": "General",
+    "settings.tab_rules": "Auto Rules",
+    "settings.available_models": "Available Models",
+    "settings.refresh_agents_title": "Re-detect local agents",
+    "settings.add_api_model": "Add API Model",
+    "settings.detecting_agents": "Detecting local agents...",
+    "settings.temperature": "Temperature / Creativity",
+    "settings.save_active_model": "Save Active Model",
+    "rules.title": "URL Auto-Switch Rules",
+    "rules.add_btn": "Add Rule",
+    "rules.editor_add_title": "Add Rule",
+    "rules.name_label": "Rule Name",
+    "rules.name_placeholder": "e.g. Github Project A",
+    "rules.pattern_label": "URL Pattern (supports *)",
+    "rules.pattern_placeholder": "e.g. *github.com/my-org/*",
+    "rules.pattern_tip": "Use `*` as wildcard, e.g. `*github.com/*` or `*localhost:3000/*`",
+    "rules.provider_label": "Model",
+    "rules.refresh_agents_btn": "🔄 Refresh Local Agents",
+    "rules.provider_tip": "Choose from configured models. This model will be used when the rule matches.",
+    "rules.cwd_label": "Local Project Path (CWD)",
+    "rules.cwd_placeholder": "e.g. /Users/name/coding/ContextLens",
+    "rules.cwd_tip": "Only used for local agents. Set workspace path when this rule matches.",
+    "rules.save_btn": "Save Rule",
+    "rules.edit_btn": "Edit",
+    "rules.delete_btn": "Delete",
+    "rules.empty_title": "No auto-switch rules yet",
+    "rules.empty_desc": "Add rules to auto-switch AI provider and workspace path on specific sites",
+    "rules.meta_provider": "Provider",
+    "rules.meta_model": "Model",
+    "rules.meta_workspace": "Workspace:",
+    "rules.move_up_title": "Move up (higher priority)",
+    "rules.move_down_title": "Move down (lower priority)",
+    "rules.edit_rule_title": "Edit rule",
+    "rules.delete_rule_title": "Delete rule",
+    "rules.pattern_title": "Pattern",
+    "rules.matched_rule": "Matched URL rule: {name}",
+    "rules.provider_custom": "Custom",
+    "rules.delete_confirm": "Delete rule \"{name}\"?",
+    "rules.editor_edit_title": "Edit Rule",
+    "rules.group_api_models": "Configured API Models",
+    "rules.group_local_agents": "Local Agents",
+    "common.cancel": "Cancel",
+    "footer.cwd_warning": "No workspace path configured for local agent.",
+    "footer.create_global_rule": "👉 Create global rule",
+    "footer.model_not_configured": "No AI model configured",
+    "quick.title": "Quick Switch for Current Page",
+    "quick.domain": "Domain",
+    "chat.placeholder_send": "Type a follow-up question... (Ctrl + Enter to send)",
+    "chat.send_title": "Send",
+    "chat.send_aria": "Send message",
+    "modal.title_configure": "Configure API Model",
+    "modal.provider_label": "Provider",
+    "modal.provider_custom": "Custom",
+    "modal.display_name": "Display Name",
+    "modal.display_name_placeholder": "e.g. Gemini 2.5 Flash",
+    "modal.api_key": "API Key",
+    "modal.api_key_placeholder": "Enter your API key",
+    "modal.base_url": "Base URL",
+    "modal.base_url_placeholder": "e.g. http://localhost:11434/v1",
+    "modal.base_url_tip": "OpenAI-compatible API base URL",
+    "modal.model_id": "Model Identifier",
+    "modal.sync_models_title": "Sync model list from API",
+    "modal.model_id_placeholder": "e.g. gemini-2.5-flash, gpt-4o-mini",
+    "modal.save_model": "Save Model",
+    "chat.stop_title": "Stop request",
+    "chat.stop_aria": "Stop request",
+    "chat.running_placeholder": "Model is running... Click the red square to stop.",
+    "chat.ask_placeholder": "Ask about selected context... (Ctrl + Enter to send)",
+    "chat.need_api_key": "Please configure API key...",
+    "chat.need_model": "Please select and save a model in settings first...",
+    "status.model_no_key": "API key not configured",
+    "status.model_not_set": "No AI model configured",
+    "status.temporary_suffix": " (Temporary)",
+    "settings.bridge_not_connected": "Bridge offline",
+    "model.badge_local": "Local",
+    "model.badge_unavailable": "Unavailable",
+    "model.local_cli": "Local CLI",
+    "model.not_installed": "Not installed",
+    "model.edit_title": "Edit",
+    "model.delete_title": "Delete",
+    "model.need_cli": "Install the CLI or start Bridge service",
+    "quick.current_page": "Current Page",
+    "quick.restore_title": "Restore rule/default model",
+    "quick.restore_desc": "Remove temporary override and return to URL rule or default model",
+    "quick.restore_btn": "Restore",
+    "quick.empty": "No switchable models. Add one in General settings first.",
+    "quick.current": "Current",
+    "quick.temp_switch": "Temp switch",
+    "quick.create_rule": "Create domain rule",
+    "settings.select_model_first": "Please select a model first!",
+    "settings.saved_applying": "Saved. Applying...",
+    "modal.hint_gemini": "Common: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash",
+    "modal.hint_openai": "Common: gpt-4o, gpt-4o-mini, gpt-4-turbo",
+    "modal.hint_claude": "Common: claude-3-5-sonnet-latest, claude-3-haiku-20240307",
+    "modal.hint_custom": "Base URL required. OpenAI-compatible services (Ollama, LM Studio, etc.)",
+    "modal.title_add": "Add API Model",
+    "modal.add_btn": "Add",
+    "modal.title_edit": "Edit Model Configuration",
+    "modal.save_btn": "Save",
+    "modal.validation_model": "Please enter model identifier!",
+    "modal.validation_key": "Please enter API key!",
+    "modal.validation_url": "Base URL is required for custom API!",
+    "modal.input_base_url_first": "Please enter the custom API Base URL first.",
+    "modal.syncing_models": "Syncing model list...",
+    "modal.manual_input": "🖊️ Manual input...",
+    "modal.sync_success": "✓ Synced {count} models successfully!",
+    "modal.sync_failed": "✗ Sync failed: {error}",
+    "rules.default_workspace_name": "Default Global Workspace",
+    "rules.validation_required": "Please fill all required fields",
+    "rules.validation_model": "Please choose a valid model",
+    "chat.user_label": "You",
+    "chat.user_stopped": "⏹️ Request stopped.",
+    "chat.config_incomplete": "⚠️ ContextLens is not configured yet. Click top-right settings and add your API key first.",
+    "settings.model_cards_bridge_offline": "Bridge offline (local agents unavailable) · {apiCount} API model(s)",
+    "settings.model_cards_summary": "{localCount} local agent(s) · {apiCount} API model(s)",
+    "settings.no_models_title": "No models available",
+    "settings.no_models_desc": "Click top-right \"Add API Model\" to configure Gemini/OpenAI keys, or start Bridge to detect local agents.",
+    "context.webpage_fallback": "Webpage",
+    "context.page_summary": "Page Summary",
+    "context.dom_semantic_path": "DOM Semantic Path",
+    "context.parent_heading": "Parent Heading / Section",
+    "context.code_context": "Code Context",
+    "context.enclosing_code_block": "Enclosing Code Block",
+    "context.table_context": "Table Context",
+    "context.enclosing_table_markdown": "Enclosing Table Markdown",
+    "context.paragraph_context": "Paragraph Context",
+    "context.enclosing_paragraph_context": "Enclosing Paragraph Context",
+    "context.full_article_body": "Full Article Body (sent as additional context)",
+    "model.list_empty": "No models configured. Click top-right Add to create one.",
+    "model.delete_custom_title": "Delete this custom model",
+    "chat.local_bridge_error": "Local Bridge error: {status}",
+    "chat.local_agent": "Local Agent",
+    "chat.local_agent_named": "Local {name}",
+    "chat.local_agent_claude": "Local Claude Code CLI",
+    "chat.local_agent_codex": "Local Codex CLI",
+    "chat.local_agent_gemini": "Local Gemini CLI",
+    "chat.initializing_agent": "Initializing {agent}...",
+    "chat.request_failed": "⚠️ API request failed: {error}",
+    "chat.network_error": "Network error.",
+    "chat.request_failed_title": "API request failed",
+    "chat.unknown_network_error": "Unknown network error. Check your network, API key, and base URL.",
+    "chat.bridge_connect_failed_title": "Cannot connect to local Bridge service",
+    "chat.bridge_connect_failed_desc": "Please start Bridge in your project directory:<br>{command}<br><br>Error: {error}",
+    "agent.prompt_context_title": "Prompt Context & Steps",
+    "agent.status_completed": "Agent Completed",
+    "agent.status_running": "running...",
+    "agent.initializing": "Initializing...",
+    "agent.result_title": "Result",
+    "common.collapse": "▼ Collapse",
+    "common.expand": "▶ Expand",
+    "think.summary_running": "💭 Thinking...",
+    "think.summary_done": "💭 Thinking Process",
+    "log.thinking_summary": "💭 Thinking Process",
+    "log.tool_call_summary": "🔧 Tool Call",
+    "log.tool_params_label": "Parameters",
+    "log.tool_result_summary": "➡️ Tool Result",
+    "log.tool_error_summary": "❌ Tool Failed",
+    "rules.provider_local_agent": "Local Agent",
+    "rules.default_gemini_api": "Google Gemini Official API",
+    "rules.default_openai_api": "OpenAI Official API",
+    "rules.default_claude_api": "Anthropic Claude Official API",
+    "rules.default_claude_agent": "Claude Code Local Agent",
+    "rules.default_codex_agent": "Codex CLI Local Agent",
+    "rules.default_gemini_agent": "Gemini CLI Local Agent"
+  }
+};
+
+function t(key, vars = {}) {
+  const langPack = I18N[uiLanguage] || I18N.zh;
+  let value = langPack[key] || I18N.zh[key] || key;
+  Object.entries(vars).forEach(([k, v]) => {
+    value = value.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+  });
+  return value;
+}
+
+function applyI18nToStaticUI() {
+  document.documentElement.lang = uiLanguage === "en" ? "en" : "zh";
+
+  document.querySelectorAll("[data-i18n-text]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-text");
+    el.textContent = t(key);
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-html");
+    el.innerHTML = t(key);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-placeholder");
+    el.setAttribute("placeholder", t(key));
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-title");
+    el.setAttribute("title", t(key));
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-aria-label");
+    el.setAttribute("aria-label", t(key));
+  });
+
+  if (languageToggleBtn) {
+    languageToggleBtn.textContent = t("header.lang_button");
+    languageToggleBtn.title = uiLanguage === "zh" ? t("header.switch_to_en") : t("header.switch_to_zh");
+    languageToggleBtn.classList.toggle("is-en", uiLanguage === "en");
+  }
+}
 
 // Settings Drawer DOM
 const settingsToggle = document.getElementById("settings-toggle");
@@ -192,17 +600,17 @@ const modelListContainer = null;
 // Provider Models Catalog
 const providerModels = {
   gemini: [
-    { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (默认)" },
-    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (高质量)" }
+    { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (Default)" },
+    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (High Quality)" }
   ],
   openai: [
-    { value: "gpt-4o-mini", label: "GPT-4o Mini (极速)" },
-    { value: "gpt-4o", label: "GPT-4o (高性能)" },
-    { value: "o1-mini", label: "o1 Mini (深度推理)" }
+    { value: "gpt-4o-mini", label: "GPT-4o Mini (Fast)" },
+    { value: "gpt-4o", label: "GPT-4o (High Performance)" },
+    { value: "o1-mini", label: "o1 Mini (Reasoning)" }
   ],
   claude: [
-    { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet (默认)" },
-    { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku (极速)" }
+    { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet (Default)" },
+    { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku (Fast)" }
   ],
   "claude-agent": [
     { value: "claude-code", label: "Claude Code CLI Agent" }
@@ -221,8 +629,8 @@ function setRequestRunningState(isRunning) {
   if (sendBtn) {
     sendBtn.classList.toggle("is-stop", isRunning);
     sendBtn.innerHTML = isRunning ? STOP_BUTTON_ICON : SEND_BUTTON_ICON;
-    sendBtn.title = isRunning ? "中断请求" : "发送";
-    sendBtn.setAttribute("aria-label", isRunning ? "中断请求" : "发送消息");
+    sendBtn.title = isRunning ? t("chat.stop_title") : t("chat.send_title");
+    sendBtn.setAttribute("aria-label", isRunning ? t("chat.stop_aria") : t("chat.send_aria"));
   }
 
   if (inputContainer) {
@@ -337,9 +745,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Load settings from chrome.storage.local
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "tabStates"]);
+  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "tabStates", "uiLanguage"]);
   
   tabStates = result.tabStates || {};
+  uiLanguage = result.uiLanguage === "en" ? "en" : "zh";
+  applyI18nToStaticUI();
   appSettings.apiProvider = result.apiProvider || "gemini";
   appSettings.temperature = result.temperature !== undefined ? parseFloat(result.temperature) : 0.7;
 
@@ -479,7 +889,7 @@ async function loadSettings() {
 
 // Fire-and-forget bridge detection - never awaited in the critical path
 function refreshLocalAgentsAsync() {
-  if (modelCardsStatus) modelCardsStatus.textContent = "正在探测本地 Agent...";
+  if (modelCardsStatus) modelCardsStatus.textContent = t("settings.detecting_agents");
   fetchLocalAgentsFromBridge(DEFAULT_BRIDGE_URL).then(async agents => {
     detectedLocalAgents = agents;
     applyActiveModelToAppSettings();
@@ -501,7 +911,7 @@ function refreshLocalAgentsAsync() {
     
     updateStatusUI();
   }).catch(() => {
-    if (modelCardsStatus) modelCardsStatus.textContent = "Bridge 未连接";
+    if (modelCardsStatus) modelCardsStatus.textContent = t("settings.bridge_not_connected");
     renderAvailableModelCards();
   });
 }
@@ -518,7 +928,7 @@ function getAllModelChoices() {
         provider: agent.id,
         model: agent.id,
         label: agent.label || agent.id,
-        meta: agent.version ? `v${agent.version} · 本地 Agent` : "本地 Agent",
+        meta: agent.version ? `v${agent.version} · ${t("model.badge_local")}` : t("model.badge_local"),
         executablePath: agent.executablePath || ""
       });
     });
@@ -650,9 +1060,9 @@ async function openModelQuickPopover() {
   const activeSignature = `${appSettings.apiProvider}::${appSettings.modelName}`;
   const domain = (() => {
     try {
-      return new URL(tab.url || "").hostname || (tab.url || "当前页面");
+      return new URL(tab.url || "").hostname || (tab.url || t("quick.current_page"));
     } catch (e) {
-      return tab.url || "当前页面";
+      return tab.url || t("quick.current_page");
     }
   })();
 
@@ -668,11 +1078,11 @@ async function openModelQuickPopover() {
     restoreRow.className = "model-quick-row";
     restoreRow.innerHTML = `
       <div class="model-quick-row-main">
-        <div class="model-quick-row-title">恢复正式规则模型</div>
-        <div class="model-quick-row-sub">撤销当前页面临时模型，回到 URL 规则或默认模型</div>
+        <div class="model-quick-row-title">${t("quick.restore_title")}</div>
+        <div class="model-quick-row-sub">${t("quick.restore_desc")}</div>
       </div>
       <div class="model-quick-row-actions">
-        <button type="button" class="model-quick-btn restore-btn">恢复</button>
+        <button type="button" class="model-quick-btn restore-btn">${t("quick.restore_btn")}</button>
       </div>
     `;
     const restoreBtn = restoreRow.querySelector(".restore-btn");
@@ -691,7 +1101,7 @@ async function openModelQuickPopover() {
   }
 
   if (allChoices.length === 0) {
-    modelQuickList.innerHTML += `<div class="model-quick-empty">暂无可切换模型，请先在基本配置中添加模型。</div>`;
+    modelQuickList.innerHTML += `<div class="model-quick-empty">${t("quick.empty")}</div>`;
     modelQuickPopover.classList.remove("hidden");
     return;
   }
@@ -710,8 +1120,8 @@ async function openModelQuickPopover() {
         <div class="model-quick-row-sub">${escapeHTML(choice.meta || choice.model)}</div>
       </div>
       <div class="model-quick-row-actions">
-        <button type="button" class="model-quick-btn switch-btn" data-model-id="${choice.id}" ${isCurrent ? "disabled" : ""}>${isCurrent ? "当前" : "本页临时切换"}</button>
-        <button type="button" class="model-quick-btn rule-btn" data-model-id="${choice.id}">建域名规则</button>
+        <button type="button" class="model-quick-btn switch-btn" data-model-id="${choice.id}" ${isCurrent ? "disabled" : ""}>${isCurrent ? t("quick.current") : t("quick.temp_switch")}</button>
+        <button type="button" class="model-quick-btn rule-btn" data-model-id="${choice.id}">${t("quick.create_rule")}</button>
       </div>
     `;
 
@@ -859,9 +1269,9 @@ function renderAvailableModelCards() {
       type: "local",
       icon: icons[agent.id] || "💻",
       name: agent.label,
-      sub: agent.available ? (agent.version ? `v${agent.version} · 本地 CLI` : "本地 CLI") : "未安装",
+      sub: agent.available ? (agent.version ? `v${agent.version} · ${t("model.local_cli")}` : t("model.local_cli")) : t("model.not_installed"),
       badge: agent.available ? "local" : "unavailable",
-      badgeText: agent.available ? "本地" : "未安装",
+      badgeText: agent.available ? t("model.badge_local") : t("model.badge_unavailable"),
       disabled: !agent.available,
       deletable: false,
       agentRef: agent
@@ -890,17 +1300,17 @@ function renderAvailableModelCards() {
     const localAvail = detectedLocalAgents.filter(a => a.available).length;
     const bridgeRunning = detectedLocalAgents.length > 0;
     if (!bridgeRunning) {
-      modelCardsStatus.textContent = `Bridge 未连接（本地 Agent 不可用）· ${configuredApiModels.length} 个 API 模型`;
+      modelCardsStatus.textContent = t("settings.model_cards_bridge_offline", { apiCount: configuredApiModels.length });
     } else {
-      modelCardsStatus.textContent = `${localAvail} 个本地 Agent · ${configuredApiModels.length} 个 API 模型`;
+      modelCardsStatus.textContent = t("settings.model_cards_summary", { localCount: localAvail, apiCount: configuredApiModels.length });
     }
   }
 
   if (cards.length === 0) {
     modelCardList.innerHTML = `
       <div class="model-card-empty">
-        <strong>尚无可用模型</strong>
-        点击右上角「添加 API 模型」配置 Gemini/OpenAI 等 API 密钥，或启动 Bridge 服务以自动探测本地 Agent
+        <strong>${t("settings.no_models_title")}</strong>
+        ${t("settings.no_models_desc")}
       </div>
     `;
     return;
@@ -923,13 +1333,13 @@ function renderAvailableModelCards() {
       <div class="model-card-side">
         ${card.id === activeModelId ? '<div class="model-card-active-indicator"></div>' : ""}
         ${card.deletable ? `
-          <button class="model-card-edit" title="编辑" data-edit-id="${card.id}">
+          <button class="model-card-edit" title="${t("model.edit_title")}" data-edit-id="${card.id}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
             </svg>
           </button>
-          <button class="model-card-delete" title="删除" data-delete-id="${card.id}">
+          <button class="model-card-delete" title="${t("model.delete_title")}" data-delete-id="${card.id}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -953,7 +1363,7 @@ function renderAvailableModelCards() {
         renderAvailableModelCards();
       });
     } else {
-      el.title = "需要安装此 CLI 工具或启动 Bridge";
+      el.title = t("model.need_cli");
     }
 
     // Edit handler for configured API models
@@ -1001,6 +1411,22 @@ function loadProviderCacheToForm(provider) {
 
 // Setup Event Listeners
 function setupEventListeners() {
+  if (languageToggleBtn) {
+    languageToggleBtn.addEventListener("click", async () => {
+      uiLanguage = uiLanguage === "zh" ? "en" : "zh";
+      await chrome.storage.local.set({ uiLanguage });
+      applyI18nToStaticUI();
+      renderAvailableModelCards();
+      renderRulesList();
+      rebuildUIForActiveTab();
+      updateStatusUI();
+      const apiModal = document.getElementById("add-api-model-modal");
+      if (apiModal && !apiModal.classList.contains("hidden")) {
+        applyProviderToModal(modalSelectedProvider, { preserveValues: true });
+      }
+    });
+  }
+
   // Insights Accordion Toggle
   const insightsToggle = document.getElementById("insights-toggle");
   const contextInsights = document.getElementById("context-insights");
@@ -1035,7 +1461,7 @@ function setupEventListeners() {
   if (settingsSaveBtn) {
     settingsSaveBtn.addEventListener("click", async () => {
       if (!activeModelId) {
-        showSettingsStatus("请先点击选择一个模型！", "error");
+        showSettingsStatus(t("settings.select_model_first"), "error");
         return;
       }
       const temp = parseFloat(modelTemperature.value);
@@ -1049,7 +1475,7 @@ function setupEventListeners() {
         configuredApiModels
       });
 
-      showSettingsStatus("已保存！正在应用...", "success");
+      showSettingsStatus(t("settings.saved_applying"), "success");
       applyActiveModelToAppSettings();
 
       // Update defaultSettingsBackup so rules can restore back to this new default
@@ -1110,12 +1536,12 @@ function setupEventListeners() {
   let editingModelId = null; // null = add mode, non-null = edit mode
   let modalStatusTimer = null;
 
-  const providerHints = {
-    gemini: "常用: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash",
-    openai: "常用: gpt-4o, gpt-4o-mini, gpt-4-turbo",
-    claude: "常用: claude-3-5-sonnet-latest, claude-3-haiku-20240307",
-    custom: "需要填写 Base URL。兼容 OpenAI 格式的服务（如 Ollama, LM Studio）"
-  };
+  const getProviderHints = () => ({
+    gemini: t("modal.hint_gemini"),
+    openai: t("modal.hint_openai"),
+    claude: t("modal.hint_claude"),
+    custom: t("modal.hint_custom")
+  });
 
   const providerDefaultModels = {
     gemini: "gemini-2.5-flash",
@@ -1143,7 +1569,10 @@ function setupEventListeners() {
         c.classList.toggle("active", c.dataset.provider === provider);
       });
     }
-    if (modalModelHint) modalModelHint.textContent = providerHints[provider] || "";
+    if (modalModelHint) {
+      const providerHints = getProviderHints();
+      modalModelHint.textContent = providerHints[provider] || "";
+    }
     clearModalStatus();
     
     // Reset model input vs select visibility
@@ -1182,8 +1611,8 @@ function setupEventListeners() {
 
   function openAddApiModelModal() {
     editingModelId = null;
-    if (modalTitle) modalTitle.textContent = "添加 API 模型";
-    if (modalSaveBtn) modalSaveBtn.textContent = "添加";
+    if (modalTitle) modalTitle.textContent = t("modal.title_add");
+    if (modalSaveBtn) modalSaveBtn.textContent = t("modal.add_btn");
     applyProviderToModal("gemini");
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   }
@@ -1193,8 +1622,8 @@ function setupEventListeners() {
     const model = configuredApiModels.find(m => m.id === modelId);
     if (!model) return;
     editingModelId = modelId;
-    if (modalTitle) modalTitle.textContent = "编辑模型配置";
-    if (modalSaveBtn) modalSaveBtn.textContent = "保存";
+    if (modalTitle) modalTitle.textContent = t("modal.title_edit");
+    if (modalSaveBtn) modalSaveBtn.textContent = t("modal.save_btn");
     applyProviderToModal(model.provider || "gemini", { preserveValues: true });
     if (modalApiKey) { modalApiKey.value = model.apiKey || ""; modalApiKey.type = "password"; }
     if (modalApiUrl) modalApiUrl.value = model.apiUrl || "";
@@ -1253,15 +1682,15 @@ function setupEventListeners() {
 
       // Validate
       if (!modelVal) {
-        if (modalStatus) { modalStatus.textContent = "请填写模型标识符！"; modalStatus.className = "settings-status error"; }
+        if (modalStatus) { modalStatus.textContent = t("modal.validation_model"); modalStatus.className = "settings-status error"; }
         return;
       }
       if (provider !== "custom" && !apiKeyVal) {
-        if (modalStatus) { modalStatus.textContent = "请填写 API 密钥！"; modalStatus.className = "settings-status error"; }
+        if (modalStatus) { modalStatus.textContent = t("modal.validation_key"); modalStatus.className = "settings-status error"; }
         return;
       }
       if (provider === "custom" && !apiUrlVal) {
-        if (modalStatus) { modalStatus.textContent = "自定义 API 必须填写 Base URL！"; modalStatus.className = "settings-status error"; }
+        if (modalStatus) { modalStatus.textContent = t("modal.validation_url"); modalStatus.className = "settings-status error"; }
         return;
       }
 
@@ -1437,7 +1866,7 @@ function setupEventListeners() {
       const ruleProviderInput = document.getElementById("rule-provider");
       const ruleCwdInput = document.getElementById("rule-cwd");
       
-      if (ruleNameInput) ruleNameInput.value = "默认全局工作区";
+      if (ruleNameInput) ruleNameInput.value = t("rules.default_workspace_name");
       if (rulePatternInput) rulePatternInput.value = "*";
       
       if (ruleProviderInput) {
@@ -1555,7 +1984,7 @@ function setupEventListeners() {
       const ruleCwd = document.getElementById("rule-cwd").value.trim();
       
       if (!ruleName || !rulePattern || !ruleProviderSelect.value) {
-        alert("请填写所有必填字段");
+        alert(t("rules.validation_required"));
         return;
       }
       
@@ -1566,7 +1995,7 @@ function setupEventListeners() {
       const modelConfigId = selectedOption.value; // Store the actual ID from configuredApiModels
       
       if (!provider || !model) {
-        alert("请选择有效的模型");
+        alert(t("rules.validation_model"));
         return;
       }
       
@@ -1644,7 +2073,7 @@ function renderModelSelection(provider, selectedValue) {
   if (allModels.length === 0) {
     const emptyMsg = document.createElement("div");
     emptyMsg.className = "model-list-empty";
-    emptyMsg.textContent = "暂无配置的模型，请点击右上角「添加」按钮添加模型";
+    emptyMsg.textContent = t("model.list_empty");
     modelListContainer.appendChild(emptyMsg);
     return;
   }
@@ -1677,7 +2106,7 @@ function renderModelSelection(provider, selectedValue) {
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
       deleteBtn.className = "model-item-delete";
-      deleteBtn.title = "删除此自定义模型";
+      deleteBtn.title = t("model.delete_custom_title");
       deleteBtn.innerHTML = `
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"></polyline>
@@ -1746,7 +2175,7 @@ async function handleFetchCustomModels() {
   
   if (!urlVal) {
     if (modalStatus) {
-      modalStatus.textContent = "请先输入您的自定义 API 基准地址 (Base URL)。";
+      modalStatus.textContent = t("modal.input_base_url_first");
       modalStatus.className = "settings-status error";
     }
     return;
@@ -1759,7 +2188,7 @@ async function handleFetchCustomModels() {
   }
   
   if (modalStatus) {
-    modalStatus.textContent = "正在同步模型列表...";
+    modalStatus.textContent = t("modal.syncing_models");
     modalStatus.className = "settings-status";
   }
   
@@ -1854,7 +2283,7 @@ async function handleFetchCustomModels() {
       // Add manual entry option
       const manualOption = document.createElement("option");
       manualOption.value = "__manual__";
-      manualOption.textContent = "🖊️ 手动输入...";
+      manualOption.textContent = t("modal.manual_input");
       modalModelSelect.appendChild(manualOption);
 
       fetchedList.forEach(modelName => {
@@ -1889,7 +2318,7 @@ async function handleFetchCustomModels() {
     }
     
     if (modalStatus) {
-      modalStatus.textContent = `✓ 成功同步了 ${fetchedList.length} 个模型！`;
+      modalStatus.textContent = t("modal.sync_success", { count: fetchedList.length });
       modalStatus.className = "settings-status success";
       handleFetchCustomModels._statusTimer = setTimeout(() => {
         const latestStatus = document.getElementById("modal-status");
@@ -1900,7 +2329,7 @@ async function handleFetchCustomModels() {
     }
   } else {
     if (modalStatus) {
-      modalStatus.textContent = `✗ 同步失败：${lastError}`;
+      modalStatus.textContent = t("modal.sync_failed", { error: lastError });
       modalStatus.className = "settings-status error";
     }
   }
@@ -1951,17 +2380,17 @@ function updateStatusUI() {
     
     chatInput.disabled = isRequestInProgress;
     chatInput.placeholder = isRequestInProgress
-      ? "模型正在执行中，点击红色方块可中断请求..."
-      : "针对所选上下文进行提问... (Ctrl + Enter 发送)";
+      ? t("chat.running_placeholder")
+      : t("chat.ask_placeholder");
     sendBtn.disabled = false;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
   } else {
     connectionStatusPill.className = "status-pill offline";
-    connectedModelName.textContent = hasModel ? "未配置 API 密钥" : "未配置 AI 模型";
+    connectedModelName.textContent = hasModel ? t("status.model_no_key") : t("status.model_not_set");
     
     chatInput.disabled = true;
-    chatInput.placeholder = hasModel ? "请配置 API 密钥..." : "请先在设置中选择并保存一个模型...";
+    chatInput.placeholder = hasModel ? t("chat.need_api_key") : t("chat.need_model");
     sendBtn.disabled = true;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
@@ -1970,9 +2399,7 @@ function updateStatusUI() {
   const hasTemporaryOverride = !!(currentTabId && tabTemporaryModelOverrides[currentTabId]);
   connectionStatusPill.classList.toggle("temporary", hasTemporaryOverride);
   if (hasTemporaryOverride) {
-    if (!connectedModelName.textContent.endsWith("（临时）")) {
-      connectedModelName.textContent = `${connectedModelName.textContent}（临时）`;
-    }
+    connectedModelName.textContent = `${connectedModelName.textContent}${t("status.temporary_suffix")}`;
   }
 }
 
@@ -2000,7 +2427,7 @@ function rebuildUIForActiveTab() {
       `;
       contextSourcePage.setAttribute("title", currentContext.pageUrl);
     } else {
-      contextSourcePage.textContent = currentContext.pageUrl || "Webpage";
+      contextSourcePage.textContent = currentContext.pageUrl || t("context.webpage_fallback");
     }
 
     // --- RENDER DOM CONTEXT INSIGHTS ---
@@ -2016,14 +2443,14 @@ function rebuildUIForActiveTab() {
         insightsContent.innerHTML = ""; // Clear previous details
         
         const cd = currentContext.contextData;
-        let badgeLabel = "上下文视窗";
+        let badgeLabel = t("context.insights_badge");
         
         // 1. Webpage Summary (Meta Description)
         if (cd.pageDescription) {
           const sect = document.createElement("div");
           sect.className = "insight-section";
           sect.innerHTML = `
-            <div class="insight-title">网页摘要</div>
+            <div class="insight-title">${t("context.page_summary")}</div>
             <div class="insight-text text-type" style="color: #0d9488; font-style: normal;">${escapeHTML(cd.pageDescription)}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2034,7 +2461,7 @@ function rebuildUIForActiveTab() {
           const sect = document.createElement("div");
           sect.className = "insight-section";
           sect.innerHTML = `
-            <div class="insight-title">DOM 语义路径</div>
+            <div class="insight-title">${t("context.dom_semantic_path")}</div>
             <div class="insight-text heading-type" style="font-family: monospace; color: #0891b2; font-size: 11px; font-weight: normal; word-break: break-all;">${escapeHTML(cd.semanticPath)}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2045,7 +2472,7 @@ function rebuildUIForActiveTab() {
           const sect = document.createElement("div");
           sect.className = "insight-section";
           sect.innerHTML = `
-            <div class="insight-title">所属父级主题 / 章节</div>
+            <div class="insight-title">${t("context.parent_heading")}</div>
             <div class="insight-text heading-type">${escapeHTML(cd.parentHeading)}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2053,11 +2480,11 @@ function rebuildUIForActiveTab() {
         
         // 4. Code Block Enclosure
         if (cd.contentType === "code" && cd.codeBlock) {
-          badgeLabel = `代码上下文: ${cd.codeBlock.language.toUpperCase()}`;
+          badgeLabel = `${t("context.code_context")}: ${cd.codeBlock.language.toUpperCase()}`;
           const sect = document.createElement("div");
           sect.className = "insight-section";
           sect.innerHTML = `
-            <div class="insight-title">包围代码块 (${escapeHTML(cd.codeBlock.language)})</div>
+            <div class="insight-title">${t("context.enclosing_code_block")} (${escapeHTML(cd.codeBlock.language)})</div>
             <div class="insight-text">${escapeHTML(cd.codeBlock.fullCode)}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2065,11 +2492,11 @@ function rebuildUIForActiveTab() {
         
         // 5. Table Structure Enclosure
         if (cd.contentType === "table" && cd.tableBlock) {
-          badgeLabel = "表格上下文";
+          badgeLabel = t("context.table_context");
           const sect = document.createElement("div");
           sect.className = "insight-section";
           sect.innerHTML = `
-            <div class="insight-title">包围表格 Markdown</div>
+            <div class="insight-title">${t("context.enclosing_table_markdown")}</div>
             <div class="insight-text table-type">${escapeHTML(cd.tableBlock)}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2077,7 +2504,7 @@ function rebuildUIForActiveTab() {
         
         // 6. Surrounding text sliding window
         if (cd.contentType === "text" && (cd.surroundingBefore || cd.surroundingAfter)) {
-          badgeLabel = "段落上下文";
+          badgeLabel = t("context.paragraph_context");
           const sect = document.createElement("div");
           sect.className = "insight-section";
           
@@ -2091,7 +2518,7 @@ function rebuildUIForActiveTab() {
           }
           
           sect.innerHTML = `
-            <div class="insight-title">包围段落上下文</div>
+            <div class="insight-title">${t("context.enclosing_paragraph_context")}</div>
             <div class="insight-text text-type">${displayHTML}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2102,7 +2529,7 @@ function rebuildUIForActiveTab() {
           const sect = document.createElement("div");
           sect.className = `insight-section full-page-insight ${includeFullPageChecked ? "" : "hidden"}`;
           sect.innerHTML = `
-            <div class="insight-title">完整文章正文 (将作为附加文章上下文发送给 Agent)</div>
+            <div class="insight-title">${t("context.full_article_body")}</div>
             <div class="insight-text text-type" style="white-space: pre-wrap; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; background: rgba(0, 0, 0, 0.025); padding: 8px; border-radius: 6px; user-select: text; text-align: left;">${escapeHTML(cd.fullPageSimplifiedText)}</div>
           `;
           insightsContent.appendChild(sect);
@@ -2165,7 +2592,7 @@ function rebuildUIForActiveTab() {
         );
       } else {
         msgEl.innerHTML = `
-          <span class="message-sender">您</span>
+          <span class="message-sender">${t("chat.user_label")}</span>
           <div class="message-bubble">${formatMarkdown(contentToDisplay)}</div>
         `;
       }
@@ -2499,7 +2926,7 @@ function appendMessage(role, text) {
     renderAssistantMessage(bubble, text, null, true, null);
   } else {
     msgEl.innerHTML = `
-      <span class="message-sender">您</span>
+      <span class="message-sender">${t("chat.user_label")}</span>
       <div class="message-bubble">${formatMarkdown(text)}</div>
     `;
   }
@@ -2542,7 +2969,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
   // Check configs
   if (!appSettings.apiKey && appSettings.apiProvider !== "custom" && !appSettings.apiProvider.endsWith("-agent")) {
     activeAbortController = null;
-    appendMessage("assistant", "⚠️ ContextLens 尚未完成配置。请点击右上角打开 AI 服务端配置面板，填写您的 API 密钥并保存！");
+    appendMessage("assistant", t("chat.config_incomplete"));
     return;
   }
 
@@ -2964,21 +3391,21 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       if (!response.ok) {
         const errObj = await response.json().catch(() => ({}));
-        throw new Error(errObj.error || `本地 Bridge 返回错误: ${response.status}`);
+        throw new Error(errObj.error || t("chat.local_bridge_error", { status: response.status }));
       }
 
       reader = response.body.getReader();
       activeReader = reader;
       const decoder = new TextDecoder();
 
-      let agentLabel = "本地 Agent";
+      let agentLabel = t("chat.local_agent");
       const matchingAgent = detectedLocalAgents.find(a => a.id === apiProvider);
-      if (matchingAgent) agentLabel = `本地 ${matchingAgent.label}`;
-      else if (apiProvider === "claude-agent") agentLabel = "本地 Claude Code CLI";
-      else if (apiProvider === "codex-agent") agentLabel = "本地 Codex CLI";
-      else if (apiProvider === "gemini-agent") agentLabel = "本地 Gemini CLI";
+      if (matchingAgent) agentLabel = t("chat.local_agent_named", { name: matchingAgent.label });
+      else if (apiProvider === "claude-agent") agentLabel = t("chat.local_agent_claude");
+      else if (apiProvider === "codex-agent") agentLabel = t("chat.local_agent_codex");
+      else if (apiProvider === "gemini-agent") agentLabel = t("chat.local_agent_gemini");
 
-      systemLogsText = `正在启动并初始化${agentLabel}...\n`;
+      systemLogsText = `${t("chat.initializing_agent", { agent: agentLabel })}\n`;
 
       if (targetTabId === currentTabId && bubbleContent) {
         renderAssistantMessage(bubbleContent, "", systemLogsText, false, agentLabel);
@@ -3068,7 +3495,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     assistantMsgObj.isAgentComplete = true;
 
     if (userAbortRequested && (!assistantMsgObj.content || !assistantMsgObj.content.trim())) {
-      assistantMsgObj.content = USER_STOP_MESSAGE;
+      assistantMsgObj.content = t("chat.user_stopped");
       if (targetTabId === currentTabId) {
         let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
         if (!activeBubble) activeBubble = bubbleContent;
@@ -3092,7 +3519,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       activeReader = null;
       assistantMsgObj.isAgentComplete = true;
       if (!assistantMsgObj.content || !assistantMsgObj.content.trim()) {
-        assistantMsgObj.content = USER_STOP_MESSAGE;
+        assistantMsgObj.content = t("chat.user_stopped");
       }
       if (targetTabId === currentTabId) {
         let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
@@ -3112,19 +3539,25 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     }
 
     console.error("ContextLens AI stream failed:", err);
-    const errMsg = `⚠️ API 请求发送失败: ${err.message || "网络错误。"}`;
+    const errMsg = t("chat.request_failed", {
+      error: err.message || t("chat.network_error")
+    });
     assistantMsgObj.content = errMsg;
 
     if (targetTabId === currentTabId) {
       let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
       if (!activeBubble) activeBubble = bubbleContent;
       if (activeBubble) {
-        let errorTitle = "API 请求发送失败";
-        let errorDesc = err.message || "发生未知网络连接错误。请检查您的网络连接、API 密钥以及自定义服务端基准地址是否正确。";
+        let errorTitle = t("chat.request_failed_title");
+        let errorDesc = escapeHTML(err.message || t("chat.unknown_network_error"));
+        const bridgeCommand = `<code style="background:rgba(220,38,38,0.08);color:#dc2626;padding:2px 4px;border-radius:4px;font-family:monospace;margin-top:4px;display:inline-block;">node bridge/server.js</code>`;
         
         if (appSettings.apiProvider.endsWith("-agent")) {
-          errorTitle = "无法连接到本地 Bridge 服务";
-          errorDesc = `请确认您已在项目目录下执行下列命令启动 Bridge 服务：<br><code style="background:rgba(220,38,38,0.08);color:#dc2626;padding:2px 4px;border-radius:4px;font-family:monospace;margin-top:4px;display:inline-block;">node bridge/server.js</code><br><br>错误信息: ${err.message}`;
+          errorTitle = t("chat.bridge_connect_failed_title");
+          errorDesc = t("chat.bridge_connect_failed_desc", {
+            command: bridgeCommand,
+            error: escapeHTML(err.message || t("chat.network_error"))
+          });
         }
         
         activeBubble.innerHTML = `
@@ -3240,8 +3673,8 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
       <details class="agent-block agent-prompt-card" ${isOpen ? "open" : ""}>
         <summary class="agent-block-header">
           <span class="agent-block-icon">📋</span>
-          <span class="agent-block-title">输入上下文与任务步骤</span>
-          <span class="agent-block-toggle">${isOpen ? "▼ 折叠" : "▶ 展开"}</span>
+          <span class="agent-block-title">${t("agent.prompt_context_title")}</span>
+          <span class="agent-block-toggle">${isOpen ? t("common.collapse") : t("common.expand")}</span>
         </summary>
         <div class="agent-block-body agent-prompt-body">${escapeHTML(promptContext)}</div>
       </details>
@@ -3250,10 +3683,10 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
 
   // ── BLOCK 2: Execution log card (collapsible, status-aware) ─────────────────
   if (isAgentResponse && (hasSystemLogs || !isComplete)) {
-    const displayLabel = agentLabel || "本地 Agent";
-    const statusText = isComplete ? "Agent 执行完毕" : `${displayLabel} 运行中...`;
+    const displayLabel = agentLabel || t("chat.local_agent");
+    const statusText = isComplete ? t("agent.status_completed") : `${displayLabel} ${t("agent.status_running")}`;
     const logDisplay = isComplete ? "none" : "block";
-    const toggleIcon = isComplete ? "▶ 展开" : "▼ 折叠";
+    const toggleIcon = isComplete ? t("common.expand") : t("common.collapse");
     const completedClass = isComplete ? "agent-log-card--done" : "";
 
     html += `
@@ -3268,7 +3701,7 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
           <span class="agent-block-title">${statusText}</span>
           <span class="agent-log-toggle agent-block-toggle">${toggleIcon}</span>
         </div>
-        <div class="agent-block-body agent-log-body agent-log-content" style="display:${logDisplay};">${formatAgentLogs(systemLogsText || "正在启动并初始化...")}</div>
+        <div class="agent-block-body agent-log-body agent-log-content" style="display:${logDisplay};">${formatAgentLogs(systemLogsText || t("agent.initializing"))}</div>
       </div>
     `;
   }
@@ -3280,7 +3713,7 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
       <div class="agent-block agent-result-card">
         <div class="agent-block-header agent-result-header">
           <span class="agent-block-icon">✦</span>
-          <span class="agent-block-title">执行结果</span>
+          <span class="agent-block-title">${t("agent.result_title")}</span>
         </div>
         <div class="agent-block-body agent-result-body">
           ${formatMarkdown(resultContent)}
@@ -3326,10 +3759,10 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
       if (!log) return;
       if (log.style.display === "none") {
         log.style.display = "block";
-        if (toggle) toggle.textContent = "▼ 折叠";
+        if (toggle) toggle.textContent = t("common.collapse");
       } else {
         log.style.display = "none";
-        if (toggle) toggle.textContent = "▶ 展开";
+        if (toggle) toggle.textContent = t("common.expand");
       }
     };
   }
@@ -3342,7 +3775,7 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
       summaryEl.addEventListener("click", () => {
         setTimeout(() => {
           const toggle = summaryEl.querySelector(".agent-block-toggle");
-          if (toggle) toggle.textContent = contextDetails.hasAttribute("open") ? "▼ 折叠" : "▶ 展开";
+          if (toggle) toggle.textContent = contextDetails.hasAttribute("open") ? t("common.collapse") : t("common.expand");
         }, 50);
       });
     }
@@ -3649,8 +4082,8 @@ function formatMarkdown(text) {
     escapedContent = escapedContent.replace(/\n/g, "<br>");
 
     const thinkHTML = block.open
-      ? `<details class="think-block" open><summary>💭 思考中...</summary><div class="think-content">${escapedContent}</div></details>`
-      : `<details class="think-block"><summary>💭 思考过程</summary><div class="think-content">${escapedContent}</div></details>`;
+      ? `<details class="think-block" open><summary>${t("think.summary_running")}</summary><div class="think-content">${escapedContent}</div></details>`
+      : `<details class="think-block"><summary>${t("think.summary_done")}</summary><div class="think-content">${escapedContent}</div></details>`;
 
     html = html.replace(`<div class="think-ph-wrapper">${THINK_PH(i)}</div>`, thinkHTML);
     // Also handle inline think placeholders
@@ -3689,20 +4122,45 @@ function formatAgentLogs(text) {
 
   const markerLookahead = "(?=🔧|➡️|❌|💭|⚙️|✅|$)";
 
-  html = html.replace(new RegExp(`💭 思考过程:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"), (match, content) => {
-    return `<details class="think-block"><summary>💭 思考过程</summary><div class="think-content">${content}</div></details>`;
-  });
-  
-  html = html.replace(new RegExp(`🔧 调用工具: ([^\\n]+)\\n参数:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"), (match, toolName, content) => {
-    return `<details class="think-block"><summary>🔧 调用工具: ${toolName}</summary><div class="think-content">${content}</div></details>`;
-  });
-
-  html = html.replace(new RegExp(`➡️ 工具执行结果:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"), (match, content) => {
-    return `<details class="think-block"><summary>➡️ 工具执行结果</summary><div class="think-content">${content}</div></details>`;
+  const thinkingPatterns = [
+    new RegExp(`💭\\s*思考过程:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"),
+    new RegExp(`💭\\s*Thinking(?: Process)?:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g")
+  ];
+  thinkingPatterns.forEach((pattern) => {
+    html = html.replace(pattern, (match, content) => {
+      return `<details class="think-block"><summary>${t("log.thinking_summary")}</summary><div class="think-content">${content}</div></details>`;
+    });
   });
 
-  html = html.replace(new RegExp(`❌ 工具执行失败:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"), (match, content) => {
-    return `<details class="think-block"><summary style="color:#ef4444">❌ 工具执行失败</summary><div class="think-content">${content}</div></details>`;
+  const toolCallPatterns = [
+    new RegExp(`🔧\\s*调用工具: ([^\\n]+)\\n参数:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"),
+    new RegExp(`🔧\\s*Tool Call: ([^\\n]+)\\n(?:Parameters?|Args?):\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g")
+  ];
+  toolCallPatterns.forEach((pattern) => {
+    html = html.replace(pattern, (match, toolName, content) => {
+      return `<details class="think-block"><summary>${t("log.tool_call_summary")}: ${toolName}</summary><div class="think-content">${t("log.tool_params_label")}:\n${content}</div></details>`;
+    });
+  });
+
+  const toolResultPatterns = [
+    new RegExp(`➡️\\s*工具执行结果:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"),
+    new RegExp(`➡️\\s*Tool Result:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g")
+  ];
+  toolResultPatterns.forEach((pattern) => {
+    html = html.replace(pattern, (match, content) => {
+      return `<details class="think-block"><summary>${t("log.tool_result_summary")}</summary><div class="think-content">${content}</div></details>`;
+    });
+  });
+
+  const toolErrorPatterns = [
+    new RegExp(`❌\\s*工具执行失败:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"),
+    new RegExp(`❌\\s*Tool Failed:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g"),
+    new RegExp(`❌\\s*Tool Error:\\n([\\s\\S]*?)\\n\\n${markerLookahead}`, "g")
+  ];
+  toolErrorPatterns.forEach((pattern) => {
+    html = html.replace(pattern, (match, content) => {
+      return `<details class="think-block"><summary style="color:#ef4444">${t("log.tool_error_summary")}</summary><div class="think-content">${content}</div></details>`;
+    });
   });
 
   // Preserve any remaining newlines
@@ -3902,8 +4360,8 @@ function applyRuleSettings(rule) {
   const banner = document.getElementById("rule-match-banner");
   const bannerText = document.getElementById("matched-rule-text");
   if (banner && bannerText) {
-    bannerText.textContent = `已按 URL 匹配规则: ${rule.name}`;
-    bannerText.setAttribute("title", `匹配模式: ${rule.pattern}\n供应商: ${rule.provider}\n模型: ${rule.model}${rule.cwd ? `\n工作区: ${rule.cwd}` : ''}`);
+    bannerText.textContent = t("rules.matched_rule", { name: rule.name });
+    bannerText.setAttribute("title", `${t("rules.pattern_title")}: ${rule.pattern}\n${t("rules.meta_provider")}: ${rule.provider}\n${t("rules.meta_model")}: ${rule.model}${rule.cwd ? `\n${t("rules.meta_workspace")} ${rule.cwd}` : ""}`);
     banner.classList.remove("hidden");
   }
 }
@@ -3948,8 +4406,8 @@ function renderRulesList() {
           <line x1="12" y1="8" x2="12" y2="12"></line>
           <line x1="12" y1="16" x2="12.01" y2="16"></line>
         </svg>
-        <p>暂无自动切换规则</p>
-        <small>添加规则可在访问特定网站时自动切换 AI 供应商和工作路径</small>
+        <p>${t("rules.empty_title")}</p>
+        <small>${t("rules.empty_desc")}</small>
       </div>
     `;
     return;
@@ -3964,14 +4422,14 @@ function renderRulesList() {
     if (rule.provider === "gemini") providerLabel = "Gemini";
     else if (rule.provider === "openai") providerLabel = "OpenAI";
     else if (rule.provider === "claude") providerLabel = "Claude";
-    else if (rule.provider === "custom") providerLabel = "自定义";
-    else if (rule.provider.endsWith("-agent")) providerLabel = "Local Agent";
+    else if (rule.provider === "custom") providerLabel = t("rules.provider_custom");
+    else if (rule.provider.endsWith("-agent")) providerLabel = t("rules.provider_local_agent");
     
     card.innerHTML = `
       <div class="rule-card-header">
         <div class="rule-card-info">
           <span class="rule-name-text">${escapeHTML(rule.name)}</span>
-          <span class="rule-pattern-badge" title="匹配模式: ${escapeHTML(rule.pattern)}">${escapeHTML(rule.pattern)}</span>
+          <span class="rule-pattern-badge" title="${t("rules.pattern_title")}: ${escapeHTML(rule.pattern)}">${escapeHTML(rule.pattern)}</span>
         </div>
         <div class="rule-card-toggle">
           <label class="switch-label">
@@ -3983,49 +4441,49 @@ function renderRulesList() {
       <div class="rule-card-body">
         <div class="rule-meta-inline">
           <span class="meta-kv">
-            <span class="meta-key">供应商</span>
+            <span class="meta-key">${t("rules.meta_provider")}</span>
             <span class="meta-val">${providerLabel}</span>
           </span>
           <span class="meta-separator">•</span>
           <span class="meta-kv">
-            <span class="meta-key">模型</span>
+            <span class="meta-key">${t("rules.meta_model")}</span>
             <span class="meta-val font-mono">${escapeHTML(rule.model)}</span>
           </span>
         </div>
         ${rule.cwd ? `
         <div class="rule-meta-row">
-          <span class="meta-label">工作区:</span>
+          <span class="meta-label">${t("rules.meta_workspace")}</span>
           <span class="meta-value font-mono truncate" title="${escapeHTML(rule.cwd)}">${escapeHTML(rule.cwd)}</span>
         </div>
         ` : ""}
       </div>
       <div class="rule-card-actions">
         <div class="rule-order-actions">
-          <button type="button" class="rule-action-btn move-up-btn" data-index="${index}" title="上移 (提高优先级)" ${index === 0 ? "disabled" : ""}>
+          <button type="button" class="rule-action-btn move-up-btn" data-index="${index}" title="${t("rules.move_up_title")}" ${index === 0 ? "disabled" : ""}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="18 15 12 9 6 15"></polyline>
             </svg>
           </button>
-          <button type="button" class="rule-action-btn move-down-btn" data-index="${index}" title="下移 (降低优先级)" ${index === urlSwitchRules.length - 1 ? "disabled" : ""}>
+          <button type="button" class="rule-action-btn move-down-btn" data-index="${index}" title="${t("rules.move_down_title")}" ${index === urlSwitchRules.length - 1 ? "disabled" : ""}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
           </button>
         </div>
         <div class="rule-crud-actions">
-          <button type="button" class="rule-action-btn edit-rule-btn" data-index="${index}" title="编辑规则">
+          <button type="button" class="rule-action-btn edit-rule-btn" data-index="${index}" title="${t("rules.edit_rule_title")}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
               <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
             </svg>
-            编辑
+            ${t("rules.edit_btn")}
           </button>
-          <button type="button" class="rule-action-btn delete-rule-btn text-danger" data-index="${index}" title="删除规则">
+          <button type="button" class="rule-action-btn delete-rule-btn text-danger" data-index="${index}" title="${t("rules.delete_rule_title")}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"></polyline>
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
             </svg>
-            删除
+            ${t("rules.delete_btn")}
           </button>
         </div>
       </div>
@@ -4088,7 +4546,7 @@ function bindRuleCardEvents() {
   document.querySelectorAll(".delete-rule-btn").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       const idx = parseInt(btn.dataset.index);
-      if (confirm(`确定要删除规则 "${urlSwitchRules[idx].name}" 吗？`)) {
+      if (confirm(t("rules.delete_confirm", { name: urlSwitchRules[idx].name }))) {
         urlSwitchRules.splice(idx, 1);
         await saveRulesToStorage();
         renderRulesList();
@@ -4130,7 +4588,7 @@ function openRuleEditor(index = null) {
   
   if (index !== null) {
     const rule = urlSwitchRules[index];
-    editorTitle.textContent = "编辑规则";
+    editorTitle.textContent = t("rules.editor_edit_title");
     editIndexInput.value = index;
     
     ruleName.value = rule.name || "";
@@ -4178,7 +4636,7 @@ function openRuleEditor(index = null) {
     
     toggleRuleCwdGroup(rule.provider);
   } else {
-    editorTitle.textContent = "添加规则";
+    editorTitle.textContent = t("rules.editor_add_title");
     editIndexInput.value = "";
     
     ruleName.value = "";
@@ -4236,7 +4694,7 @@ function renderConfiguredModelsForRule(selectedModelId = null) {
   // Add configured API models
   if (configuredApiModels.length > 0) {
     const group = document.createElement("optgroup");
-    group.label = "已配置的 API 模型";
+    group.label = t("rules.group_api_models");
     configuredApiModels.forEach(model => {
       const opt = document.createElement("option");
       opt.value = model.id;
@@ -4254,7 +4712,7 @@ function renderConfiguredModelsForRule(selectedModelId = null) {
   // Add detected local agents
   if (detectedLocalAgents.length > 0) {
     const group = document.createElement("optgroup");
-    group.label = "本地 Agent";
+    group.label = t("rules.group_local_agents");
     detectedLocalAgents.forEach(agent => {
       const agentModel = agent.id || "";
       const agentLabel = agent.label || agent.displayName || agent.name || agentModel;
@@ -4274,12 +4732,12 @@ function renderConfiguredModelsForRule(selectedModelId = null) {
   // If nothing configured, show default providers as fallback
   if (configuredApiModels.length === 0 && detectedLocalAgents.length === 0) {
     const defaults = [
-      { label: "Google Gemini 官方 API", value: "gemini:default", provider: "gemini", model: "gemini-2.0-flash" },
-      { label: "OpenAI 官方 API", value: "openai:default", provider: "openai", model: "gpt-4" },
-      { label: "Anthropic Claude 官方 API", value: "claude:default", provider: "claude", model: "claude-3-5-sonnet-20241022" },
-      { label: "Claude Code 本地 Agent", value: "claude-agent:default", provider: "claude-agent", model: "claude-code" },
-      { label: "Codex CLI 本地 Agent", value: "codex-agent:default", provider: "codex-agent", model: "codex" },
-      { label: "Gemini CLI 本地 Agent", value: "gemini-agent:default", provider: "gemini-agent", model: "gemini" }
+      { label: t("rules.default_gemini_api"), value: "gemini:default", provider: "gemini", model: "gemini-2.0-flash" },
+      { label: t("rules.default_openai_api"), value: "openai:default", provider: "openai", model: "gpt-4" },
+      { label: t("rules.default_claude_api"), value: "claude:default", provider: "claude", model: "claude-3-5-sonnet-20241022" },
+      { label: t("rules.default_claude_agent"), value: "claude-agent:default", provider: "claude-agent", model: "claude-code" },
+      { label: t("rules.default_codex_agent"), value: "codex-agent:default", provider: "codex-agent", model: "codex" },
+      { label: t("rules.default_gemini_agent"), value: "gemini-agent:default", provider: "gemini-agent", model: "gemini" }
     ];
     defaults.forEach(item => {
       const opt = document.createElement("option");

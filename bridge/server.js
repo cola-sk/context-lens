@@ -322,12 +322,12 @@ const server = http.createServer((req, res) => {
               if (type === 'item.started' && json.item) {
                 const item = json.item;
                 if (item.type === 'command_execution') {
-                  sendSystemLog(`🔧 执行命令: ${item.command || ''}\n\n`);
+                  sendSystemLog(`🔧 Execute Command: ${item.command || ''}\n\n`);
                   return;
                 }
                 if (item.type === 'reasoning' || item.type === 'agent_thinking' || item.type === 'thinking') {
                   const text = item.text || item.content || item.value || '';
-                  if (text) sendSystemLog(`💭 思考过程:\n${text}\n\n`);
+                  if (text) sendSystemLog(`💭 Thinking Process:\n${text}\n\n`);
                   return;
                 }
               }
@@ -343,33 +343,33 @@ const server = http.createServer((req, res) => {
                   const exitCode = item.exit_code;
                   const isError = exitCode !== null && exitCode !== 0;
                   const statusIcon = isError ? '❌' : '➡️';
-                  const statusText = isError ? `命令执行失败 (退出码: ${exitCode})` : '命令执行成功';
+                  const statusText = isError ? `Command failed (exit code: ${exitCode})` : "Command executed successfully";
                   let displayContent = item.aggregated_output || '';
                   if (typeof displayContent === 'string' && displayContent.length > 800) {
-                    displayContent = displayContent.substring(0, 800) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                    displayContent = displayContent.substring(0, 800) + '\n... [Truncated, total ' + displayContent.length + ' chars]';
                   }
                   sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n`);
                   return;
                 }
                 if (item.type === 'reasoning' || item.type === 'agent_thinking' || item.type === 'thinking') {
                   const text = item.text || item.content || item.value || '';
-                  if (text) sendSystemLog(`💭 思考过程:\n${text}\n\n`);
+                  if (text) sendSystemLog(`💭 Thinking Process:\n${text}\n\n`);
                   return;
                 }
               }
 
               if (type === 'thread.started') {
-                sendSystemLog(`⚙️ [初始化] 本地 Codex CLI 会话已启动\n`);
+                sendSystemLog("⚙️ [Init] Local Codex CLI session started\n");
                 return;
               }
 
               if (type === 'task_started' || type === 'session_started') {
-                sendSystemLog(`⚙️ [初始化] 本地 ${agentName} 工作目录: ${json.cwd || cwd || '默认'}\n`);
+                sendSystemLog(`⚙️ [Init] Local ${agentName} workspace: ${json.cwd || cwd || "default"}\n`);
                 return;
               }
               if (type === 'agent_reasoning' || type === 'reasoning') {
                 const text = json.content || json.value || json.text || '';
-                if (text) sendSystemLog(`💭 思考过程:\n${text}\n\n`);
+                if (text) sendSystemLog(`💭 Thinking Process:\n${text}\n\n`);
                 return;
               }
               if (type === 'agent_message' || type === 'message') {
@@ -383,16 +383,16 @@ const server = http.createServer((req, res) => {
                 const inputStr = typeof toolInput === 'object'
                   ? JSON.stringify(toolInput, null, 2)
                   : String(toolInput);
-                sendSystemLog(`🔧 调用工具: ${toolName}\n参数:\n${inputStr}\n\n`);
+                sendSystemLog(`🔧 Tool Call: ${toolName}\nParameters:\n${inputStr}\n\n`);
                 return;
               }
               if (type === 'tool_result' || type === 'function_result') {
                 const isError = json.is_error || json.error || false;
                 const statusIcon = isError ? '❌' : '➡️';
-                const statusText = isError ? '工具执行失败' : '工具执行结果';
+                const statusText = isError ? 'Tool Failed' : 'Tool Result';
                 let displayContent = json.output || json.content || json.value || '';
                 if (typeof displayContent === 'string' && displayContent.length > 500) {
-                  displayContent = displayContent.substring(0, 500) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                  displayContent = displayContent.substring(0, 500) + '\n... [Truncated, total ' + displayContent.length + ' chars]';
                 }
                 sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
                 return;
@@ -404,7 +404,7 @@ const server = http.createServer((req, res) => {
               }
               if (type === 'error') {
                 const msg = json.message || json.value || json.content || String(json);
-                sendSystemLog(`❌ 错误: ${msg}\n`);
+                sendSystemLog(`❌ Error: ${msg}\n`);
                 return;
               }
 
@@ -445,25 +445,25 @@ const server = http.createServer((req, res) => {
                 const inputStr = typeof toolInput === 'object'
                   ? JSON.stringify(toolInput, null, 2)
                   : String(toolInput);
-                sendSystemLog(`🔧 调用工具: ${toolName}\n参数:\n${inputStr}\n\n`);
+                sendSystemLog(`🔧 Tool Call: ${toolName}\nParameters:\n${inputStr}\n\n`);
                 return;
               }
               if (type === 'tool_result' || type === 'functionResponse') {
                 const isError = json.is_error || json.error || false;
                 const statusIcon = isError ? '❌' : '➡️';
-                const statusText = isError ? '工具执行失败' : '工具执行结果';
+                const statusText = isError ? 'Tool Failed' : 'Tool Result';
                 let displayContent = json.output || json.content || json.value ||
                   (json.functionResponse && json.functionResponse.response) || '';
                 if (typeof displayContent === 'object') displayContent = JSON.stringify(displayContent);
                 if (typeof displayContent === 'string' && displayContent.length > 500) {
-                  displayContent = displayContent.substring(0, 500) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                  displayContent = displayContent.substring(0, 500) + '\n... [Truncated, total ' + displayContent.length + ' chars]';
                 }
                 sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
                 return;
               }
               if (type === 'error') {
                 const msg = json.message || json.value || json.content || String(json);
-                sendSystemLog(`❌ 错误: ${msg}\n`);
+                sendSystemLog(`❌ Error: ${msg}\n`);
                 return;
               }
 
@@ -505,15 +505,15 @@ const server = http.createServer((req, res) => {
               // 1. System/initialization events
               if (json.type === 'system') {
                 if (json.subtype === 'init') {
-                  sendSystemLog(`⚙️ [初始化] 本地 ${agentName} 工作目录: ${json.cwd || '默认'}\n`);
+                  sendSystemLog(`⚙️ [Init] Local ${agentName} workspace: ${json.cwd || "default"}\n`);
                   return;
                 }
                 if (json.subtype === 'hook_started') {
-                  sendSystemLog(`⏱️ [钩子开始] ${json.hook_name || ''}\n`);
+                  sendSystemLog(`⏱️ [Hook Start] ${json.hook_name || ""}\n`);
                   return;
                 }
                 if (json.subtype === 'hook_response') {
-                  sendSystemLog(`✅ [钩子完成] ${json.hook_name || ''}\n`);
+                  sendSystemLog(`✅ [Hook Done] ${json.hook_name || ""}\n`);
                   return;
                 }
               }
@@ -523,14 +523,14 @@ const server = http.createServer((req, res) => {
                 for (const content of json.message.content) {
                   if (content.type === 'thinking') {
                     if (content.thinking) {
-                      sendSystemLog(`💭 思考过程:\n${content.thinking}\n\n`);
+                      sendSystemLog(`💭 Thinking Process:\n${content.thinking}\n\n`);
                     }
                   } else if (content.type === 'tool_use') {
                     const toolName = content.name;
                     const toolInput = content.input && typeof content.input === 'object'
                       ? JSON.stringify(content.input, null, 2)
                       : (content.input || '');
-                    sendSystemLog(`🔧 调用工具: ${toolName}\n参数:\n${toolInput}\n\n`);
+                    sendSystemLog(`🔧 Tool Call: ${toolName}\nParameters:\n${toolInput}\n\n`);
                   } else if (content.type === 'text') {
                     if (content.text) {
                       sendText(content.text);
@@ -546,11 +546,11 @@ const server = http.createServer((req, res) => {
                   if (content.type === 'tool_result') {
                     const isError = content.is_error;
                     const statusIcon = isError ? '❌' : '➡️';
-                    const statusText = isError ? '工具执行失败' : '工具执行结果';
+                    const statusText = isError ? 'Tool Failed' : 'Tool Result';
                     let displayContent = content.content || '';
                     
                     if (typeof displayContent === 'string' && displayContent.length > 500) {
-                      displayContent = displayContent.substring(0, 500) + '\n... [已截断，共 ' + displayContent.length + ' 字符]';
+                      displayContent = displayContent.substring(0, 500) + '\n... [Truncated, total ' + displayContent.length + ' chars]';
                     }
                     sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
                   }
@@ -572,7 +572,7 @@ const server = http.createServer((req, res) => {
               // 5. Error events
               if (json.type === 'error') {
                 const msg = json.message || json.value || json.content || String(json);
-                sendSystemLog(`❌ 错误: ${msg}\n`);
+                sendSystemLog(`❌ Error: ${msg}\n`);
                 return;
               }
 

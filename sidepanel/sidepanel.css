@@ -73,6 +73,12 @@ body.dark-theme {
   color: var(--text-primary);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .logo-text {
   font-family: var(--font-display);
   font-size: 18px;
@@ -107,6 +113,32 @@ body.dark-theme {
   border-color: rgba(99, 102, 241, 0.4);
   color: var(--text-primary);
   transform: scale(1.05);
+}
+
+.lang-toggle-btn {
+  height: 36px;
+  min-width: 78px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.lang-toggle-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: var(--text-primary);
+}
+
+.lang-toggle-btn.is-en {
+  color: var(--accent-indigo);
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.08);
 }
 
 /* Chat container */

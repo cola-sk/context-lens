@@ -13,12 +13,17 @@
       <div class="logo-area">
         <span class="logo-text">Context<span class="glow-accent">Lens</span></span>
       </div>
-      <button id="settings-toggle" class="header-btn" title="AI 服务设置">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-        </svg>
-      </button>
+      <div class="header-actions">
+        <button id="language-toggle" class="lang-toggle-btn" type="button" title="Switch Language">
+          中文 / EN
+        </button>
+        <button id="settings-toggle" class="header-btn" title="AI 服务设置" data-i18n-title="header.settings_title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- Main Content Panel -->
@@ -34,23 +39,23 @@
               <line x1="10" y1="22" x2="14" y2="22"></line>
             </svg>
           </div>
-          <h2>已准备就绪，静待探索</h2>
-          <p>在网页上选中任何文本，点击悬浮的 <strong>Lens</strong> 按钮或右键选择 Ask ContextLens，插件将提取深度 DOM 上下文并为您提供精辟的 AI 解答。</p>
+          <h2 data-i18n-text="welcome.title">已准备就绪，静待探索</h2>
+          <p data-i18n-html="welcome.desc">在网页上选中任何文本，点击悬浮的 <strong>Lens</strong> 按钮或右键选择 Ask ContextLens，插件将提取深度 DOM 上下文并为您提供精辟的 AI 解答。</p>
           <div class="welcome-guide">
             <div class="guide-item">
               <span class="step-num">1</span>
-              <span>在网页上划词选中任意文本</span>
+              <span data-i18n-text="welcome.step1">在网页上划词选中任意文本</span>
             </div>
             <div class="guide-item">
               <span class="step-num">2</span>
-              <span>点击悬浮 Lens 按钮或右键菜单</span>
+              <span data-i18n-text="welcome.step2">点击悬浮 Lens 按钮或右键菜单</span>
             </div>
             <div class="guide-item">
               <span class="step-num">3</span>
-              <span>在此面板与 AI 展开无缝对话</span>
+              <span data-i18n-text="welcome.step3">在此面板与 AI 展开无缝对话</span>
             </div>
           </div>
-          <button id="configure-now-btn" class="glow-button">配置 AI 服务设置</button>
+          <button id="configure-now-btn" class="glow-button" data-i18n-text="welcome.configure_btn">配置 AI 服务设置</button>
         </div>
       </div>
 
@@ -62,9 +67,9 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
               </svg>
-              选中的网页文本
+              <span data-i18n-text="context.selected_text">选中的网页文本</span>
             </span>
-            <button id="clear-context-btn" class="text-btn" title="清除选区">清除</button>
+            <button id="clear-context-btn" class="text-btn" title="清除选区" data-i18n-title="context.clear_title" data-i18n-text="context.clear_btn">清除</button>
           </div>
           <p id="context-text" class="context-body"></p>
           
@@ -77,7 +82,7 @@
                   <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
                   <line x1="12" y1="22.08" x2="12" y2="12"></line>
                 </svg>
-                <span id="insights-badge" class="insights-badge-tag">上下文视窗</span>
+                <span id="insights-badge" class="insights-badge-tag" data-i18n-text="context.insights_badge">上下文视窗</span>
               </span>
               <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
@@ -93,7 +98,7 @@
             <label class="full-page-checkbox-label">
               <input type="checkbox" id="include-full-page-context">
               <span class="checkbox-custom"></span>
-              <span class="label-text">💡 附加完整文章上下文</span>
+              <span class="label-text" data-i18n-text="context.full_page_label">💡 附加完整文章上下文</span>
             </label>
           </div>
 
@@ -117,14 +122,14 @@
       <div class="drawer-overlay"></div>
       <div class="drawer-content">
         <div class="drawer-header">
-          <h3>AI 服务端配置</h3>
+          <h3 data-i18n-text="settings.drawer_title">AI 服务端配置</h3>
           <button id="settings-close" class="close-btn">&times;</button>
         </div>
         
         <!-- Drawer Tabs -->
         <div class="drawer-tabs">
-          <button id="tab-general" class="drawer-tab active" type="button">基本配置</button>
-          <button id="tab-rules" class="drawer-tab" type="button">自动切换规则</button>
+          <button id="tab-general" class="drawer-tab active" type="button" data-i18n-text="settings.tab_general">基本配置</button>
+          <button id="tab-rules" class="drawer-tab" type="button" data-i18n-text="settings.tab_rules">自动切换规则</button>
         </div>
         
         <div class="drawer-body">
@@ -133,9 +138,9 @@
             <!-- Model Cards Header -->
             <div class="model-cards-header">
               <div class="model-cards-title-row">
-                <span class="model-cards-title">可用模型</span>
+                <span class="model-cards-title" data-i18n-text="settings.available_models">可用模型</span>
                 <div class="model-cards-actions">
-                  <button type="button" id="refresh-agents-btn" class="icon-action-btn" title="重新探测本地 Agent">
+                  <button type="button" id="refresh-agents-btn" class="icon-action-btn" title="重新探测本地 Agent" data-i18n-title="settings.refresh_agents_title">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                     </svg>
@@ -145,11 +150,11 @@
                       <line x1="12" y1="5" x2="12" y2="19"></line>
                       <line x1="5" y1="12" x2="19" y2="12"></line>
                     </svg>
-                    添加 API 模型
+                    <span data-i18n-text="settings.add_api_model">添加 API 模型</span>
                   </button>
                 </div>
               </div>
-              <p class="model-cards-tip" id="model-cards-status">正在探测本地 Agent...</p>
+              <p class="model-cards-tip" id="model-cards-status" data-i18n-text="settings.detecting_agents">正在探测本地 Agent...</p>
             </div>
 
             <!-- Model Card List -->
@@ -160,26 +165,26 @@
             <!-- Global Temperature -->
             <div class="global-temperature-group">
               <div class="temp-label-row">
-                <label for="model-temperature">温度 / 创造力 (Temperature)</label>
+                <label for="model-temperature" data-i18n-text="settings.temperature">温度 / 创造力 (Temperature)</label>
                 <span id="temp-val">0.7</span>
               </div>
               <input type="range" id="model-temperature" min="0" max="2" step="0.1" value="0.7">
             </div>
 
-            <button type="button" id="settings-save-btn" class="submit-button glow-button">保存激活模型</button>
+            <button type="button" id="settings-save-btn" class="submit-button glow-button" data-i18n-text="settings.save_active_model">保存激活模型</button>
             <div id="settings-status" class="settings-status"></div>
           </div>
 
           <!-- URL Switching Rules Tab Panel -->
           <div id="panel-rules" class="tab-panel hidden">
             <div class="rules-header">
-              <span class="rules-title">URL 自动切换规则</span>
+              <span class="rules-title" data-i18n-text="rules.title">URL 自动切换规则</span>
               <button id="add-rule-btn" class="add-rule-btn" type="button">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-                添加新规则
+                <span data-i18n-text="rules.add_btn">添加新规则</span>
               </button>
             </div>
             
@@ -190,43 +195,43 @@
             <!-- Rule Editor Form Panel -->
             <div id="rule-editor" class="rule-editor-panel hidden">
               <div class="editor-header">
-                <h4 id="editor-title">添加规则</h4>
+                <h4 id="editor-title" data-i18n-text="rules.editor_add_title">添加规则</h4>
                 <button id="close-editor-btn" class="close-editor-btn" type="button">&times;</button>
               </div>
               <form id="rule-editor-form">
                 <input type="hidden" id="edit-rule-index" value="">
                 
                 <div class="form-group">
-                  <label for="rule-name">规则名称</label>
-                  <input type="text" id="rule-name" placeholder="例如: Github Project A" required>
+                  <label for="rule-name" data-i18n-text="rules.name_label">规则名称</label>
+                  <input type="text" id="rule-name" placeholder="例如: Github Project A" data-i18n-placeholder="rules.name_placeholder" required>
                 </div>
                 
                 <div class="form-group">
-                  <label for="rule-pattern">URL 匹配规则 (支持 * 通配符)</label>
-                  <input type="text" id="rule-pattern" placeholder="例如: *github.com/my-org/*" required>
-                  <small class="form-tip">支持 `*` 匹配任意字符。例如 `*github.com/*` 或 `*localhost:3000/*`</small>
+                  <label for="rule-pattern" data-i18n-text="rules.pattern_label">URL 匹配规则 (支持 * 通配符)</label>
+                  <input type="text" id="rule-pattern" placeholder="例如: *github.com/my-org/*" data-i18n-placeholder="rules.pattern_placeholder" required>
+                  <small class="form-tip" data-i18n-html="rules.pattern_tip">支持 `*` 匹配任意字符。例如 `*github.com/*` 或 `*localhost:3000/*`</small>
                 </div>
                 
                 <div class="form-group">
                   <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label for="rule-provider">选择模型</label>
-                    <button type="button" id="refresh-rule-agents-btn" class="refresh-agents-btn">🔄 刷新本地 Agent</button>
+                    <label for="rule-provider" data-i18n-text="rules.provider_label">选择模型</label>
+                    <button type="button" id="refresh-rule-agents-btn" class="refresh-agents-btn" data-i18n-text="rules.refresh_agents_btn">🔄 刷新本地 Agent</button>
                   </div>
                   <select id="rule-provider">
                     <!-- 动态生成：已配置的API模型 + 本地Agent -->
                   </select>
-                  <small class="form-tip">从已配置的模型列表中选择。当前规则命中时将自动使用该模型。</small>
+                  <small class="form-tip" data-i18n-text="rules.provider_tip">从已配置的模型列表中选择。当前规则命中时将自动使用该模型。</small>
                 </div>
                 
                 <div class="form-group" id="rule-cwd-group">
-                  <label for="rule-cwd">本地项目绝对路径 (CWD)</label>
-                  <input type="text" id="rule-cwd" placeholder="例如: /Users/liuzhe.x/coding/ContextLens">
-                  <small class="form-tip">只在选择本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
+                  <label for="rule-cwd" data-i18n-text="rules.cwd_label">本地项目绝对路径 (CWD)</label>
+                  <input type="text" id="rule-cwd" placeholder="例如: /Users/liuzhe.x/coding/ContextLens" data-i18n-placeholder="rules.cwd_placeholder">
+                  <small class="form-tip" data-i18n-text="rules.cwd_tip">只在选择本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
                 </div>
                 
                 <div class="editor-actions">
-                  <button type="button" id="cancel-rule-btn" class="secondary-btn">取消</button>
-                  <button type="submit" class="submit-button glow-button">保存规则</button>
+                  <button type="button" id="cancel-rule-btn" class="secondary-btn" data-i18n-text="common.cancel">取消</button>
+                  <button type="submit" class="submit-button glow-button" data-i18n-text="rules.save_btn">保存规则</button>
                 </div>
               </form>
             </div>
@@ -238,30 +243,30 @@
     <footer class="app-footer">
       <div id="cwd-warning-banner" class="cwd-warning-banner hidden">
         <span class="banner-icon">⚠️</span>
-        <span class="banner-text">本地 Agent 未配置工作目录。</span>
-        <button id="create-fallback-rule-btn" class="banner-action-btn">👉 创建全局规则</button>
+        <span class="banner-text" data-i18n-text="footer.cwd_warning">本地 Agent 未配置工作目录。</span>
+        <button id="create-fallback-rule-btn" class="banner-action-btn" data-i18n-text="footer.create_global_rule">👉 创建全局规则</button>
       </div>
 
       <div id="connection-status-pill" class="status-pill offline">
         <span class="pulse-indicator"></span>
-        <span id="connected-model-name">未配置 AI 模型</span>
+        <span id="connected-model-name" data-i18n-text="footer.model_not_configured">未配置 AI 模型</span>
       </div>
 
       <div id="model-quick-popover" class="model-quick-popover hidden">
         <div class="model-quick-header">
-          <span class="model-quick-title">当前页面快速模型切换</span>
+          <span class="model-quick-title" data-i18n-text="quick.title">当前页面快速模型切换</span>
           <button id="model-quick-close" type="button" class="model-quick-close">&times;</button>
         </div>
         <div class="model-quick-domain-row">
-          <span class="domain-label">域名</span>
+          <span class="domain-label" data-i18n-text="quick.domain">域名</span>
           <span id="model-quick-current-domain" class="domain-value">-</span>
         </div>
         <div id="model-quick-list" class="model-quick-list"></div>
       </div>
 
       <div class="input-container">
-        <textarea id="chat-input" placeholder="输入后续提问... (Ctrl + Enter 发送)" rows="1" disabled></textarea>
-        <button id="send-btn" class="send-btn" disabled title="发送" aria-label="发送消息">
+        <textarea id="chat-input" placeholder="输入后续提问... (Ctrl + Enter 发送)" data-i18n-placeholder="chat.placeholder_send" rows="1" disabled></textarea>
+        <button id="send-btn" class="send-btn" disabled title="发送" aria-label="发送消息" data-i18n-title="chat.send_title" data-i18n-aria-label="chat.send_aria">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -275,13 +280,13 @@
   <div id="add-api-model-modal" class="modal-backdrop hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 class="modal-title" id="modal-title">配置 API 模型</h3>
+        <h3 class="modal-title" id="modal-title" data-i18n-text="modal.title_configure">配置 API 模型</h3>
         <button id="close-api-modal-btn" class="close-btn">&times;</button>
       </div>
       <div class="modal-body">
         <!-- Provider Selection Grid -->
         <div class="form-group">
-          <label>选择供应商 (Provider)</label>
+          <label data-i18n-text="modal.provider_label">选择供应商 (Provider)</label>
           <div class="provider-grid" id="modal-provider-grid">
             <button type="button" class="provider-chip active" data-provider="gemini">
               <span class="provider-chip-icon">🌟</span>
@@ -297,22 +302,22 @@
             </button>
             <button type="button" class="provider-chip" data-provider="custom">
               <span class="provider-chip-icon">⚡</span>
-              <span>自定义</span>
+              <span data-i18n-text="modal.provider_custom">自定义</span>
             </button>
           </div>
         </div>
 
         <!-- Display Name -->
         <div class="form-group">
-          <label for="modal-model-label">显示名称</label>
-          <input type="text" id="modal-model-label" placeholder="例如: Gemini 2.5 Flash">
+          <label for="modal-model-label" data-i18n-text="modal.display_name">显示名称</label>
+          <input type="text" id="modal-model-label" placeholder="例如: Gemini 2.5 Flash" data-i18n-placeholder="modal.display_name_placeholder">
         </div>
 
         <!-- API Key (Gemini / OpenAI / Claude) -->
         <div class="form-group" id="modal-key-group">
-          <label for="modal-api-key">API 密钥</label>
+          <label for="modal-api-key" data-i18n-text="modal.api_key">API 密钥</label>
           <div class="input-password-wrapper">
-            <input type="password" id="modal-api-key" placeholder="请输入您的 API 密钥">
+            <input type="password" id="modal-api-key" placeholder="请输入您的 API 密钥" data-i18n-placeholder="modal.api_key_placeholder">
             <button type="button" id="modal-toggle-key" class="visibility-btn">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -324,23 +329,23 @@
 
         <!-- Base URL (Custom only) -->
         <div class="form-group hidden" id="modal-url-group">
-          <label for="modal-api-url">基准地址 (Base URL)</label>
-          <input type="text" id="modal-api-url" placeholder="例如 http://localhost:11434/v1">
-          <small class="form-tip">兼容 OpenAI 规范的 API 基准地址</small>
+          <label for="modal-api-url" data-i18n-text="modal.base_url">基准地址 (Base URL)</label>
+          <input type="text" id="modal-api-url" placeholder="例如 http://localhost:11434/v1" data-i18n-placeholder="modal.base_url_placeholder">
+          <small class="form-tip" data-i18n-text="modal.base_url_tip">兼容 OpenAI 规范的 API 基准地址</small>
         </div>
 
         <!-- Model Name / Selector -->
         <div class="form-group">
           <div class="label-row">
-            <label for="modal-model-name">模型标识符</label>
-            <button type="button" id="modal-sync-models-btn" class="sync-icon-btn hidden" title="从 API 同步模型列表">
+            <label for="modal-model-name" data-i18n-text="modal.model_id">模型标识符</label>
+            <button type="button" id="modal-sync-models-btn" class="sync-icon-btn hidden" title="从 API 同步模型列表" data-i18n-title="modal.sync_models_title">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
               </svg>
             </button>
           </div>
           <div id="modal-model-input-container">
-            <input type="text" id="modal-model-name" placeholder="例如 gemini-2.5-flash, gpt-4o-mini">
+            <input type="text" id="modal-model-name" placeholder="例如 gemini-2.5-flash, gpt-4o-mini" data-i18n-placeholder="modal.model_id_placeholder">
             <select id="modal-model-select" class="hidden"></select>
           </div>
         </div>
@@ -348,8 +353,8 @@
         <div id="modal-status" class="settings-status"></div>
       </div>
       <div class="modal-footer">
-        <button type="button" id="modal-cancel-btn" class="secondary-btn">取消</button>
-        <button type="button" id="modal-save-btn" class="submit-button glow-button">保存模型</button>
+        <button type="button" id="modal-cancel-btn" class="secondary-btn" data-i18n-text="common.cancel">取消</button>
+        <button type="button" id="modal-save-btn" class="submit-button glow-button" data-i18n-text="modal.save_model">保存模型</button>
       </div>
     </div>
   </div>
