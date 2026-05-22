@@ -1827,7 +1827,10 @@ function setupEventListeners() {
   const tabRules = document.getElementById("tab-rules");
   const panelGeneral = document.getElementById("panel-general");
   const panelRules = document.getElementById("panel-rules");
-  const ruleEditor = document.getElementById("rule-editor");
+  const ruleEditorModal = document.getElementById("rule-editor-modal");
+  const closeRuleEditorModal = () => {
+    if (ruleEditorModal) ruleEditorModal.classList.add("hidden");
+  };
 
   if (tabGeneral && tabRules && panelGeneral && panelRules) {
     tabGeneral.addEventListener("click", () => {
@@ -1835,7 +1838,7 @@ function setupEventListeners() {
       tabRules.classList.remove("active");
       panelGeneral.classList.remove("hidden");
       panelRules.classList.add("hidden");
-      if (ruleEditor) ruleEditor.classList.add("hidden"); // close editor when switching tabs
+      closeRuleEditorModal(); // close editor when switching tabs
     });
 
     tabRules.addEventListener("click", () => {
@@ -1945,13 +1948,21 @@ function setupEventListeners() {
 
   if (closeEditorBtn) {
     closeEditorBtn.addEventListener("click", () => {
-      if (ruleEditor) ruleEditor.classList.add("hidden");
+      closeRuleEditorModal();
     });
   }
 
   if (cancelRuleBtn) {
     cancelRuleBtn.addEventListener("click", () => {
-      if (ruleEditor) ruleEditor.classList.add("hidden");
+      closeRuleEditorModal();
+    });
+  }
+
+  if (ruleEditorModal) {
+    ruleEditorModal.addEventListener("click", (e) => {
+      if (e.target === ruleEditorModal) {
+        closeRuleEditorModal();
+      }
     });
   }
 
@@ -2019,7 +2030,7 @@ function setupEventListeners() {
       }
       
       await saveRulesToStorage();
-      if (ruleEditor) ruleEditor.classList.add("hidden");
+      closeRuleEditorModal();
       renderRulesList();
       await evaluateUrlSwitchingForActiveTab();
     });
@@ -2043,6 +2054,8 @@ function toggleDrawer(show) {
     settingsDrawer.classList.remove("hidden");
   } else {
     settingsDrawer.classList.add("hidden");
+    const ruleEditorModal = document.getElementById("rule-editor-modal");
+    if (ruleEditorModal) ruleEditorModal.classList.add("hidden");
   }
 }
 
@@ -4576,6 +4589,7 @@ async function saveRulesToStorage() {
 
 // Slide down and populate rule editor panel
 function openRuleEditor(index = null) {
+  const ruleEditorModal = document.getElementById("rule-editor-modal");
   const ruleEditor = document.getElementById("rule-editor");
   const editorTitle = document.getElementById("editor-title");
   const editIndexInput = document.getElementById("edit-rule-index");
@@ -4584,7 +4598,7 @@ function openRuleEditor(index = null) {
   const rulePattern = document.getElementById("rule-pattern");
   const ruleCwd = document.getElementById("rule-cwd");
   
-  if (!ruleEditor) return;
+  if (!ruleEditor || !ruleEditorModal) return;
   
   if (index !== null) {
     const rule = urlSwitchRules[index];
@@ -4648,8 +4662,10 @@ function openRuleEditor(index = null) {
     toggleRuleCwdGroup("gemini");
   }
   
-  ruleEditor.classList.remove("hidden");
-  ruleEditor.scrollIntoView({ behavior: "smooth", block: "end" });
+  ruleEditorModal.classList.remove("hidden");
+  setTimeout(() => {
+    ruleName.focus();
+  }, 0);
 }
 
 // Render model options for selected provider in rule editor

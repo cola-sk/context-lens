@@ -191,50 +191,6 @@
             <div id="rules-list" class="rules-list">
               <!-- Rules cards injected dynamically -->
             </div>
-            
-            <!-- Rule Editor Form Panel -->
-            <div id="rule-editor" class="rule-editor-panel hidden">
-              <div class="editor-header">
-                <h4 id="editor-title" data-i18n-text="rules.editor_add_title">添加规则</h4>
-                <button id="close-editor-btn" class="close-editor-btn" type="button">&times;</button>
-              </div>
-              <form id="rule-editor-form">
-                <input type="hidden" id="edit-rule-index" value="">
-                
-                <div class="form-group">
-                  <label for="rule-name" data-i18n-text="rules.name_label">规则名称</label>
-                  <input type="text" id="rule-name" placeholder="例如: Github Project A" data-i18n-placeholder="rules.name_placeholder" required>
-                </div>
-                
-                <div class="form-group">
-                  <label for="rule-pattern" data-i18n-text="rules.pattern_label">URL 匹配规则 (支持 * 通配符)</label>
-                  <input type="text" id="rule-pattern" placeholder="例如: *github.com/my-org/*" data-i18n-placeholder="rules.pattern_placeholder" required>
-                  <small class="form-tip" data-i18n-html="rules.pattern_tip">支持 `*` 匹配任意字符。例如 `*github.com/*` 或 `*localhost:3000/*`</small>
-                </div>
-                
-                <div class="form-group">
-                  <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <label for="rule-provider" data-i18n-text="rules.provider_label">选择模型</label>
-                    <button type="button" id="refresh-rule-agents-btn" class="refresh-agents-btn" data-i18n-text="rules.refresh_agents_btn">🔄 刷新本地 Agent</button>
-                  </div>
-                  <select id="rule-provider">
-                    <!-- 动态生成：已配置的API模型 + 本地Agent -->
-                  </select>
-                  <small class="form-tip" data-i18n-text="rules.provider_tip">从已配置的模型列表中选择。当前规则命中时将自动使用该模型。</small>
-                </div>
-                
-                <div class="form-group" id="rule-cwd-group">
-                  <label for="rule-cwd" data-i18n-text="rules.cwd_label">本地项目绝对路径 (CWD)</label>
-                  <input type="text" id="rule-cwd" placeholder="例如: /Users/liuzhe.x/coding/ContextLens" data-i18n-placeholder="rules.cwd_placeholder">
-                  <small class="form-tip" data-i18n-text="rules.cwd_tip">只在选择本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
-                </div>
-                
-                <div class="editor-actions">
-                  <button type="button" id="cancel-rule-btn" class="secondary-btn" data-i18n-text="common.cancel">取消</button>
-                  <button type="submit" class="submit-button glow-button" data-i18n-text="rules.save_btn">保存规则</button>
-                </div>
-              </form>
-            </div>
           </div>
         </div>
       </div>
@@ -274,6 +230,54 @@
         </button>
       </div>
     </footer>
+  </div>
+
+  <!-- Rule Editor Modal -->
+  <div id="rule-editor-modal" class="modal-backdrop hidden">
+    <div class="modal-content rule-editor-modal-content">
+      <div id="rule-editor" class="rule-editor-panel">
+        <div class="editor-header">
+          <h4 id="editor-title" data-i18n-text="rules.editor_add_title">添加规则</h4>
+          <button id="close-editor-btn" class="close-editor-btn" type="button">&times;</button>
+        </div>
+        <form id="rule-editor-form">
+          <input type="hidden" id="edit-rule-index" value="">
+          
+          <div class="form-group">
+            <label for="rule-name" data-i18n-text="rules.name_label">规则名称</label>
+            <input type="text" id="rule-name" placeholder="例如: Github Project A" data-i18n-placeholder="rules.name_placeholder" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="rule-pattern" data-i18n-text="rules.pattern_label">URL 匹配规则 (支持 * 通配符)</label>
+            <input type="text" id="rule-pattern" placeholder="例如: *github.com/my-org/*" data-i18n-placeholder="rules.pattern_placeholder" required>
+            <small class="form-tip" data-i18n-html="rules.pattern_tip">支持 `*` 匹配任意字符。例如 `*github.com/*` 或 `*localhost:3000/*`</small>
+          </div>
+          
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label for="rule-provider" data-i18n-text="rules.provider_label">选择模型</label>
+              <button type="button" id="refresh-rule-agents-btn" class="refresh-agents-btn" data-i18n-text="rules.refresh_agents_btn">🔄 刷新本地 Agent</button>
+            </div>
+            <select id="rule-provider">
+              <!-- 动态生成：已配置的API模型 + 本地Agent -->
+            </select>
+            <small class="form-tip" data-i18n-text="rules.provider_tip">从已配置的模型列表中选择。当前规则命中时将自动使用该模型。</small>
+          </div>
+          
+          <div class="form-group" id="rule-cwd-group">
+            <label for="rule-cwd" data-i18n-text="rules.cwd_label">本地项目绝对路径 (CWD)</label>
+            <input type="text" id="rule-cwd" placeholder="例如: /Users/liuzhe.x/coding/ContextLens" data-i18n-placeholder="rules.cwd_placeholder">
+            <small class="form-tip" data-i18n-text="rules.cwd_tip">只在选择本地 Agent 时生效。指定该规则命中时的本地工作区路径。</small>
+          </div>
+          
+          <div class="editor-actions">
+            <button type="button" id="cancel-rule-btn" class="secondary-btn" data-i18n-text="common.cancel">取消</button>
+            <button type="submit" class="submit-button glow-button" data-i18n-text="rules.save_btn">保存规则</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <!-- Add API Model Modal -->
