@@ -833,6 +833,28 @@ body.dark-theme {
   color: var(--text-primary);
 }
 
+/* Links */
+.message-bubble a, .agent-result-body a {
+  color: #0f766e;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-word;
+}
+.message-bubble a:hover, .agent-result-body a:hover {
+  color: #115e59;
+}
+
+/* Blockquotes */
+.message-bubble blockquote, .agent-result-body blockquote,
+.message-bubble .md-blockquote, .agent-result-body .md-blockquote {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid #14b8a6;
+  background: rgba(20, 184, 166, 0.08);
+  border-radius: 6px;
+  color: var(--text-secondary);
+}
+
 /* Think block (<think> tag from reasoning models) */
 .think-block {
   margin: 6px 0;

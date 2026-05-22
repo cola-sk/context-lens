@@ -2,9 +2,41 @@
 
 // Track which tabs have side panel active
 let activeSidePanelTabs = new Set();
+const SIDE_PANEL_PATH = "sidepanel/sidepanel.html";
 
 // Cache of the latest right-clicked context per tab
 let tabRightClickContexts = {};
+
+function enableSidePanelForTab(tabId, { silent = false } = {}) {
+  if (!tabId) return Promise.resolve();
+  activeSidePanelTabs.add(tabId);
+  return chrome.sidePanel.setOptions({
+    tabId,
+    path: SIDE_PANEL_PATH,
+    enabled: true
+  }).catch((err) => {
+    if (!silent) {
+      console.warn(`🔮 [ContextLens Background] Failed to enable side panel for tab ${tabId}:`, err);
+    }
+  });
+}
+
+async function resolveTabMeta(tabId, fallbackUrl = "", fallbackTitle = "") {
+  let url = fallbackUrl || "";
+  let title = fallbackTitle || "";
+  if (!tabId) return { url, title };
+
+  if (url && title) return { url, title };
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!url) url = tab?.url || "";
+    if (!title) title = tab?.title || "";
+  } catch (err) {
+    // Ignore resolution failures and keep fallback values.
+  }
+  return { url, title };
+}
 
 function buildFallbackContextFromMenuInfo(info, tab) {
   const fallbackText = (
@@ -56,12 +88,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Handle toolbar action clicks (extension icon)
 chrome.action.onClicked.addListener((tab) => {
-  activeSidePanelTabs.add(tab.id);
-  chrome.sidePanel.setOptions({
-    tabId: tab.id,
-    path: "sidepanel/sidepanel.html",
-    enabled: true
-  });
+  enableSidePanelForTab(tab.id);
   
   // Open the side panel synchronously to preserve user gesture
   chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
@@ -84,12 +111,7 @@ chrome.action.onClicked.addListener((tab) => {
 // Handle Context Menu clicks
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === "ask-contextlens") {
-    activeSidePanelTabs.add(tab.id);
-    chrome.sidePanel.setOptions({
-      tabId: tab.id,
-      path: "sidepanel/sidepanel.html",
-      enabled: true
-    });
+    enableSidePanelForTab(tab.id);
 
     // 1. Open the side panel synchronously for the active tab (preserves gesture)
     chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
@@ -99,8 +121,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     let selectionPayload = {
       tabId: tab.id,
       text: info.selectionText || "",
-      pageUrl: tab.url,
-      pageTitle: tab.title,
+      pageUrl: tab?.url || info.pageUrl || "",
+      pageTitle: tab?.title || "",
       timestamp: Date.now(),
       contextData: null
     };
@@ -182,6 +204,22 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         }
       }
 
+      // Ensure page URL/title are always available for sidepanel rendering and prompt context.
+      if (!selectionPayload.pageUrl && selectionPayload.contextData?.pageUrl) {
+        selectionPayload.pageUrl = selectionPayload.contextData.pageUrl;
+      }
+      if (!selectionPayload.pageTitle && selectionPayload.contextData?.pageTitle) {
+        selectionPayload.pageTitle = selectionPayload.contextData.pageTitle;
+      }
+
+      const resolvedMeta = await resolveTabMeta(
+        tab.id,
+        selectionPayload.pageUrl,
+        selectionPayload.pageTitle
+      );
+      selectionPayload.pageUrl = resolvedMeta.url || selectionPayload.pageUrl || "";
+      selectionPayload.pageTitle = resolvedMeta.title || selectionPayload.pageTitle || "";
+
       // 3. Save selection details to session storage (notifies side panel)
       await chrome.storage.session.set({
         lastSelection: selectionPayload
@@ -208,12 +246,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "OPEN_SIDE_PANEL") {
-    activeSidePanelTabs.add(sender.tab.id);
-    chrome.sidePanel.setOptions({
-      tabId: sender.tab.id,
-      path: "sidepanel/sidepanel.html",
-      enabled: true
-    });
+    enableSidePanelForTab(sender.tab.id);
 
     // 1. Open side panel for the tab synchronously (preserves gesture context across message boundaries)
     chrome.sidePanel.open({ tabId: sender.tab.id }).catch((err) => {
@@ -223,12 +256,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // 2. Save selection context with rich payload to session storage and reply asynchronously
     (async () => {
       try {
+        const fallbackUrl = sender.tab?.url || message?.contextData?.pageUrl || "";
+        const fallbackTitle = sender.tab?.title || message?.contextData?.pageTitle || "";
+        if (!sender.tab?.url && fallbackUrl) {
+          console.log("🔮 [ContextLens Background] sender.tab.url is empty. Using fallback URL from context payload or tab lookup.");
+        }
+        const resolvedMeta = await resolveTabMeta(sender.tab?.id, fallbackUrl, fallbackTitle);
+
         await chrome.storage.session.set({
           lastSelection: {
             tabId: sender.tab.id,
             text: message.text,
-            pageUrl: sender.tab.url,
-            pageTitle: sender.tab.title,
+            pageUrl: resolvedMeta.url || fallbackUrl || "",
+            pageTitle: resolvedMeta.title || fallbackTitle || "",
             timestamp: Date.now(),
             contextData: message.contextData || null // Enriched DOM details
           }
@@ -243,18 +283,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Track active tab and dynamically close side panel on inactive tabs
+// Keep side panel available while navigating tabs once user has opened it.
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  const tabId = activeInfo.tabId;
-  if (!activeSidePanelTabs.has(tabId)) {
-    try {
-      await chrome.sidePanel.setOptions({
-        tabId: tabId,
-        enabled: false
-      });
-    } catch (e) {
-      // restricted chrome pages or unloaded tabs
-    }
+  if (activeSidePanelTabs.size > 0) {
+    await enableSidePanelForTab(activeInfo.tabId, { silent: true });
   }
 });
 

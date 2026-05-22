@@ -61,15 +61,20 @@ let addedProviderModels = {
 let tabStates = {}; // tabId -> { currentContext, chatHistory, includeFullPageChecked }
 let currentTabId = null;
 let tabTemporaryModelOverrides = {}; // tabId -> { modelId, updatedAt }
+let tabStatesPersistTimer = null;
+let autoScrollEnabled = true;
+let isProgrammaticChatScroll = false;
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 20;
 
 // Get or initialize state for a tab
 function getTabState(tabId) {
-  if (!tabId) return { currentContext: null, chatHistory: [], includeFullPageChecked: false };
+  if (!tabId) return { currentContext: null, chatHistory: [], includeFullPageChecked: false, autoScrollEnabled: true };
   if (!tabStates[tabId]) {
     tabStates[tabId] = {
       currentContext: null,
       chatHistory: [],
-      includeFullPageChecked: false
+      includeFullPageChecked: false,
+      autoScrollEnabled: true
     };
   }
   return tabStates[tabId];
@@ -80,6 +85,22 @@ function persistTabStates() {
   chrome.storage.local.set({ tabStates }).catch(err => console.warn("Failed to persist tab states:", err));
 }
 
+function schedulePersistTabStates(delayMs = 120) {
+  if (tabStatesPersistTimer) return;
+  tabStatesPersistTimer = setTimeout(() => {
+    tabStatesPersistTimer = null;
+    persistTabStates();
+  }, delayMs);
+}
+
+function flushPersistTabStates() {
+  if (tabStatesPersistTimer) {
+    clearTimeout(tabStatesPersistTimer);
+    tabStatesPersistTimer = null;
+  }
+  persistTabStates();
+}
+
 // Save active tab's global state to tabStates before switching or modifying
 function saveActiveTabState() {
   if (currentTabId) {
@@ -87,6 +108,7 @@ function saveActiveTabState() {
     state.currentContext = currentContext;
     state.chatHistory = [...chatHistory];
     state.includeFullPageChecked = includeFullPageChecked;
+    state.autoScrollEnabled = autoScrollEnabled;
     persistTabStates();
   }
 }
@@ -99,6 +121,24 @@ function restoreActiveTabState(tabId) {
   currentContext = state.currentContext;
   chatHistory = [...state.chatHistory];
   includeFullPageChecked = state.includeFullPageChecked;
+  autoScrollEnabled = state.autoScrollEnabled !== false;
+}
+
+function isSameSelectionSnapshot(prevSelection, nextSelection) {
+  if (!prevSelection || !nextSelection) return false;
+
+  const prevTs = Number(prevSelection.timestamp || 0);
+  const nextTs = Number(nextSelection.timestamp || 0);
+  if (prevTs && nextTs) return prevTs === nextTs;
+  if ((prevTs && !nextTs) || (!prevTs && nextTs)) return false;
+
+  const sameText = (prevSelection.text || "") === (nextSelection.text || "");
+  const samePage = (prevSelection.pageUrl || "") === (nextSelection.pageUrl || "");
+  const sameTitle = (prevSelection.pageTitle || "") === (nextSelection.pageTitle || "");
+  const prevSerializedContext = JSON.stringify(prevSelection.contextData || null);
+  const nextSerializedContext = JSON.stringify(nextSelection.contextData || null);
+
+  return sameText && samePage && sameTitle && prevSerializedContext === nextSerializedContext;
 }
 
 // System prompt to feed the AI
@@ -681,6 +721,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadSettings();
   setupEventListeners();
   setRequestRunningState(false);
+
+  // Persist in-memory tab state when panel is hidden/destroyed during tab switching.
+  window.addEventListener("pagehide", () => {
+    saveActiveTabState();
+    flushPersistTabStates();
+  });
   
   // Listen for text selection changes via session storage
   chrome.storage.session.onChanged.addListener((changes) => {
@@ -1411,6 +1457,8 @@ function loadProviderCacheToForm(provider) {
 
 // Setup Event Listeners
 function setupEventListeners() {
+  setupAutoScrollPauseOnUserScroll();
+
   if (languageToggleBtn) {
     languageToggleBtn.addEventListener("click", async () => {
       uiLanguage = uiLanguage === "zh" ? "en" : "zh";
@@ -2630,7 +2678,11 @@ function rebuildUIForActiveTab() {
   } else {
     const chatContainer = document.querySelector(".chat-container");
     if (chatContainer) {
+      isProgrammaticChatScroll = true;
       chatContainer.scrollTop = 0;
+      requestAnimationFrame(() => {
+        isProgrammaticChatScroll = false;
+      });
     }
   }
 }
@@ -2642,16 +2694,44 @@ async function handleNewSelection(selection, isNewInteraction = false) {
   const tabId = selection.tabId || currentTabId;
   if (!tabId) return;
 
+  // Normalize selection meta fields for sites where sender.tab.url may be missing.
+  if (!selection.pageUrl && selection.contextData?.pageUrl) {
+    selection.pageUrl = selection.contextData.pageUrl;
+  }
+  if (!selection.pageTitle && selection.contextData?.pageTitle) {
+    selection.pageTitle = selection.contextData.pageTitle;
+  }
+  if (!selection.pageUrl || !selection.pageTitle) {
+    try {
+      const tabMeta = await chrome.tabs.get(tabId);
+      if (!selection.pageUrl && tabMeta?.url) selection.pageUrl = tabMeta.url;
+      if (!selection.pageTitle && tabMeta?.title) selection.pageTitle = tabMeta.title;
+    } catch (e) {
+      // Ignore tab metadata resolution failures and keep existing values.
+    }
+  }
+  if (!selection.pageUrl) {
+    console.warn("🔮 [ContextLens Sidepanel] Selection payload missing pageUrl after normalization.", {
+      tabId,
+      hasContextData: !!selection.contextData
+    });
+  }
+
   saveActiveTabState();
 
   const state = getTabState(tabId);
   if (selection.text || selection.contextData) {
+    const previousContext = state.currentContext;
+    const isSameSelection = isSameSelectionSnapshot(previousContext, selection);
     state.currentContext = selection;
     state.includeFullPageChecked = false; // Reset to unchecked for safety
+    if (!isSameSelection) {
+      state.autoScrollEnabled = true;
+    }
 
     // A new user-triggered selection (Lens button or right-click) resets the
     // chat for this tab so the conversation starts fresh with the new context.
-    if (isNewInteraction) {
+    if (isNewInteraction && !isSameSelection) {
       // Cancel any in-progress stream
       if (tabId === currentTabId && (activeReader || activeAbortController)) {
         await handleStopStreamingRequest();
@@ -2665,7 +2745,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
     rebuildUIForActiveTab();
     saveActiveTabState();
   } else {
-    persistTabStates();
+    flushPersistTabStates();
   }
 }
 
@@ -2953,10 +3033,45 @@ function appendMessage(role, text) {
   return msgEl;
 }
 
-// Scroll chat list container to bottom
-function scrollToBottom() {
+function updateAutoScrollStateForActiveTab() {
+  if (!currentTabId) return;
+  const state = getTabState(currentTabId);
+  state.autoScrollEnabled = autoScrollEnabled;
+  schedulePersistTabStates();
+}
+
+function isNearBottom(container, threshold = AUTO_SCROLL_BOTTOM_THRESHOLD) {
+  if (!container) return true;
+  const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+  return distanceToBottom <= threshold;
+}
+
+function setupAutoScrollPauseOnUserScroll() {
   const container = document.querySelector(".chat-container");
+  if (!container || container.dataset.autoScrollBound === "1") return;
+
+  container.dataset.autoScrollBound = "1";
+  container.addEventListener("scroll", () => {
+    if (isProgrammaticChatScroll) return;
+
+    const nextAutoScrollEnabled = isNearBottom(container);
+    if (nextAutoScrollEnabled !== autoScrollEnabled) {
+      autoScrollEnabled = nextAutoScrollEnabled;
+      updateAutoScrollStateForActiveTab();
+    }
+  }, { passive: true });
+}
+
+// Scroll chat list container to bottom
+function scrollToBottom(force = false) {
+  const container = document.querySelector(".chat-container");
+  if (!container) return;
+  if (!force && !autoScrollEnabled) return;
+  isProgrammaticChatScroll = true;
   container.scrollTop = container.scrollHeight;
+  requestAnimationFrame(() => {
+    isProgrammaticChatScroll = false;
+  });
 }
 
 // Unified Streaming Handler
@@ -3016,6 +3131,25 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
   if (targetTabId === currentTabId) {
     chatHistory = [...targetState.chatHistory];
   }
+  const scheduleStreamStatePersist = () => {
+    if (targetTabId === currentTabId) {
+      const activeState = getTabState(targetTabId);
+      activeState.currentContext = currentContext;
+      activeState.chatHistory = [...chatHistory];
+      activeState.includeFullPageChecked = includeFullPageChecked;
+    }
+    schedulePersistTabStates();
+  };
+  const commitStreamStatePersist = () => {
+    if (targetTabId === currentTabId) {
+      const activeState = getTabState(targetTabId);
+      activeState.currentContext = currentContext;
+      activeState.chatHistory = [...chatHistory];
+      activeState.includeFullPageChecked = includeFullPageChecked;
+    }
+    flushPersistTabStates();
+  };
+  scheduleStreamStatePersist();
 
   try {
     const { apiProvider, apiKey, apiUrl, modelName, temperature } = appSettings;
@@ -3107,6 +3241,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
             if (textChunk) {
               streamedText += textChunk;
               assistantMsgObj.content = streamedText;
+              scheduleStreamStatePersist();
               if (targetTabId === currentTabId) {
                 let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                 if (!activeBubble) activeBubble = bubbleContent;
@@ -3134,6 +3269,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
             if (textChunk) {
               streamedText += textChunk;
               assistantMsgObj.content = streamedText;
+              scheduleStreamStatePersist();
               if (targetTabId === currentTabId) {
                 let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                 if (!activeBubble) activeBubble = bubbleContent;
@@ -3264,6 +3400,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
                 }
               }
               assistantMsgObj.content = streamedText;
+              scheduleStreamStatePersist();
               if (targetTabId === currentTabId) {
                 let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                 if (!activeBubble) activeBubble = bubbleContent;
@@ -3352,6 +3489,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
               if (parsed.type === "content_block_delta" && parsed.delta?.text) {
                 streamedText += parsed.delta.text;
                 assistantMsgObj.content = streamedText;
+                scheduleStreamStatePersist();
                 if (targetTabId === currentTabId) {
                   let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                   if (!activeBubble) activeBubble = bubbleContent;
@@ -3445,6 +3583,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
               assistantMsgObj.isAgentComplete = true;
               assistantMsgObj.systemLogs = systemLogsText;
               assistantMsgObj.agentLabel = agentLabel;
+              scheduleStreamStatePersist();
               
               if (targetTabId === currentTabId) {
                 let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
@@ -3462,6 +3601,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
               if (parsed.type === "text" && parsed.text) {
                 streamedText += parsed.text;
                 assistantMsgObj.content = streamedText;
+                scheduleStreamStatePersist();
                 
                 if (targetTabId === currentTabId) {
                   let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
@@ -3474,6 +3614,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
               } else if (parsed.type === "system" && parsed.text) {
                 systemLogsText += parsed.text;
                 assistantMsgObj.systemLogs = systemLogsText;
+                scheduleStreamStatePersist();
                 
                 if (targetTabId === currentTabId) {
                   let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
@@ -3486,6 +3627,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
               } else if (parsed.type === "error" && parsed.text) {
                 streamedText += `\n${parsed.text}\n`;
                 assistantMsgObj.content = streamedText;
+                scheduleStreamStatePersist();
                 
                 if (targetTabId === currentTabId) {
                   let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
@@ -3506,9 +3648,11 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
     activeReader = null;
     assistantMsgObj.isAgentComplete = true;
+    scheduleStreamStatePersist();
 
     if (userAbortRequested && (!assistantMsgObj.content || !assistantMsgObj.content.trim())) {
       assistantMsgObj.content = t("chat.user_stopped");
+      scheduleStreamStatePersist();
       if (targetTabId === currentTabId) {
         let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
         if (!activeBubble) activeBubble = bubbleContent;
@@ -3520,11 +3664,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
     }
 
-    if (targetTabId === currentTabId) {
-      saveActiveTabState();
-    } else {
-      persistTabStates();
-    }
+    commitStreamStatePersist();
 
   } catch (err) {
     const wasUserAbort = userAbortRequested || isAbortError(err);
@@ -3534,6 +3674,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       if (!assistantMsgObj.content || !assistantMsgObj.content.trim()) {
         assistantMsgObj.content = t("chat.user_stopped");
       }
+      scheduleStreamStatePersist();
       if (targetTabId === currentTabId) {
         let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
         if (!activeBubble) activeBubble = bubbleContent;
@@ -3543,11 +3684,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
           renderAssistantMessage(activeBubble, assistantMsgObj.content, logs, true, label);
         }
       }
-      if (targetTabId === currentTabId) {
-        saveActiveTabState();
-      } else {
-        persistTabStates();
-      }
+      commitStreamStatePersist();
       return;
     }
 
@@ -3556,6 +3693,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       error: err.message || t("chat.network_error")
     });
     assistantMsgObj.content = errMsg;
+    scheduleStreamStatePersist();
 
     if (targetTabId === currentTabId) {
       let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
@@ -3586,11 +3724,8 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     }
     activeReader = null;
     assistantMsgObj.isAgentComplete = true;
-    if (targetTabId === currentTabId) {
-      saveActiveTabState();
-    } else {
-      persistTabStates();
-    }
+    scheduleStreamStatePersist();
+    commitStreamStatePersist();
   } finally {
     activeAbortController = null;
   }
@@ -3876,14 +4011,19 @@ function formatMarkdown(text) {
   const codeBlocks = [];
   const CODE_PH = (i) => `CTXLENS_CODE_${i}_PH`;
 
-  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+  text = text.replace(/```([^\n`]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
     const idx = codeBlocks.length;
     const escaped = code
-      .trim()
+      .replace(/^\n/, "")
+      .replace(/\n$/, "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-    codeBlocks.push(`<pre><code class="language-${lang || "text"}">${escaped}</code></pre>`);
+    const languageClass = (lang || "text")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "") || "text";
+    codeBlocks.push(`<pre><code class="language-${languageClass}">${escaped}</code></pre>`);
     return CODE_PH(idx);
   });
 
@@ -3952,6 +4092,28 @@ function formatMarkdown(text) {
       continue;
     }
 
+    // ── Blockquote: > quote line ──
+    // Note: the markdown text has already been HTML-escaped above, so ">" becomes "&gt;".
+    // Support both raw ">" and escaped "&gt;" markers to avoid missing quote formatting.
+    const quoteMatch = trimmed.match(/^(?:(?:>|&gt;)\s?)+(.*)$/);
+    if (quoteMatch) {
+      flushPara();
+      flushLists();
+      const quoteLines = [];
+      let j = i;
+      while (j < lines.length) {
+        const quoteLine = lines[j].trim();
+        const match = quoteLine.match(/^(?:(?:>|&gt;)\s?)+(.*)$/);
+        if (!match) break;
+        quoteLines.push(match[1]);
+        j++;
+      }
+      const quoteHtml = quoteLines.map(line => applyInlineMarkdown(line)).join("<br>");
+      outputParts.push(`<blockquote class="md-blockquote">${quoteHtml}</blockquote>`);
+      i = j - 1;
+      continue;
+    }
+
     // ── Markdown table detection ──
     // A table must have at least 2 lines: header | separator
     if (trimmed.startsWith("|") && i + 1 < lines.length) {
@@ -4005,9 +4167,6 @@ function formatMarkdown(text) {
       const indent = ulMatch[1].length;
       const content = applyInlineMarkdown(ulMatch[3]);
 
-      // Determine nesting depth (1 level per 2 spaces or 1 tab)
-      const depth = Math.floor(indent / 2) + 1;
-
       if (listStack.length === 0) {
         listStack.push({ type: "ul", indent });
         outputParts.push(`<ul class="md-ul">`);
@@ -4020,7 +4179,6 @@ function formatMarkdown(text) {
           while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
             const closed = listStack.pop();
             outputParts.push(`</${closed.type}>`);
-            outputParts.push(`</li>`);
           }
         } else if (top.type !== "ul") {
           flushLists();
@@ -4051,7 +4209,6 @@ function formatMarkdown(text) {
           while (listStack.length > 0 && listStack[listStack.length - 1].indent > indent) {
             const closed = listStack.pop();
             outputParts.push(`</${closed.type}>`);
-            outputParts.push(`</li>`);
           }
         } else if (top.type !== "ol") {
           flushLists();
@@ -4087,9 +4244,18 @@ function formatMarkdown(text) {
       .replace(/>/g, "&gt;");
 
     // Apply inline formatting to think content
-    escapedContent = escapedContent.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) => {
-      const ec = code.trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      return `<pre><code class="language-${lang || "text"}">${ec}</code></pre>`;
+    escapedContent = escapedContent.replace(/```([^\n`]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+      const ec = code
+        .replace(/^\n/, "")
+        .replace(/\n$/, "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const languageClass = (lang || "text")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "") || "text";
+      return `<pre><code class="language-${languageClass}">${ec}</code></pre>`;
     });
     escapedContent = applyInlineMarkdown(escapedContent);
     escapedContent = escapedContent.replace(/\n/g, "<br>");
@@ -4106,11 +4272,49 @@ function formatMarkdown(text) {
   return html;
 }
 
-// Apply inline markdown: bold, italic, inline code, strikethrough
+function sanitizeMarkdownLinkUrl(rawUrl) {
+  if (!rawUrl) return "";
+  const cleaned = rawUrl.trim().replace(/^<|>$/g, "");
+  if (!cleaned) return "";
+
+  const lower = cleaned.toLowerCase();
+  const isSafe =
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
+    lower.startsWith("mailto:") ||
+    lower.startsWith("tel:") ||
+    lower.startsWith("/") ||
+    lower.startsWith("#");
+
+  return isSafe ? cleaned.replace(/"/g, "&quot;") : "";
+}
+
+// Apply inline markdown: links, bold, italic, inline code, strikethrough
 function applyInlineMarkdown(text) {
   if (!text) return "";
-  // Inline code (do first to avoid treating `` content as bold/italic)
-  text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  const inlineCodeTokens = [];
+  const CODE_SPAN_PH = (i) => `CTXLENS_INLINE_CODE_${i}_PH`;
+  text = text.replace(/`([^`\n]+)`/g, (match, codeContent) => {
+    const idx = inlineCodeTokens.length;
+    inlineCodeTokens.push(`<code>${codeContent}</code>`);
+    return CODE_SPAN_PH(idx);
+  });
+
+  const markdownLinkTokens = [];
+  const LINK_PH = (i) => `CTXLENS_INLINE_LINK_${i}_PH`;
+  text = text.replace(/\[([^\]]+)\]\(([^)\s]+(?:\s+"[^"]*")?)\)/g, (match, label, rawUrlWithOptionalTitle) => {
+    const idx = markdownLinkTokens.length;
+    const urlPart = rawUrlWithOptionalTitle.replace(/\s+"[^"]*"$/, "").trim();
+    const safeUrl = sanitizeMarkdownLinkUrl(urlPart);
+    if (!safeUrl) {
+      markdownLinkTokens.push(label);
+      return LINK_PH(idx);
+    }
+    markdownLinkTokens.push(`<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    return LINK_PH(idx);
+  });
+
   // Bold + italic: ***text***
   text = text.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
   // Bold: **text**
@@ -4123,6 +4327,17 @@ function applyInlineMarkdown(text) {
   text = text.replace(/_([^_\n]+)_/g, "<em>$1</em>");
   // Strikethrough: ~~text~~
   text = text.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+
+  // Auto-link bare URLs
+  text = text.replace(/(^|[\s(])(https?:\/\/[^\s<]+)(?=$|[\s),.!?])/g, (match, prefix, rawUrl) => {
+    const safeUrl = sanitizeMarkdownLinkUrl(rawUrl);
+    if (!safeUrl) return match;
+    return `${prefix}<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${rawUrl}</a>`;
+  });
+
+  text = text.replace(/CTXLENS_INLINE_LINK_(\d+)_PH/g, (match, idx) => markdownLinkTokens[parseInt(idx, 10)] || "");
+  text = text.replace(/CTXLENS_INLINE_CODE_(\d+)_PH/g, (match, idx) => inlineCodeTokens[parseInt(idx, 10)] || "");
+
   return text;
 }
 
