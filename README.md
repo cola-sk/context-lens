@@ -4,9 +4,6 @@ ContextLens 是一款 Chrome 浏览器插件，让您在任意网页上划词选
 
 同时支持 **本地 CLI 编程代理**（Claude Code、Codex CLI、Gemini CLI），通过 Bridge Server 将选中 UI 文本直接发送给本地代理，实现"选中 → 定位代码 → 自动修改"的开发闭环。
 
-![ContextLens 主界面](referrence/main.png)
-![ContextLens 选词交互](referrence/img1.png)
-
 ---
 
 ## 核心特性
@@ -67,12 +64,16 @@ Bridge Server 默认运行在 `http://localhost:3100`，插件会自动探测本
 
 ## 使用方法
 
+![ContextLens 主界面](referrence/main.png)
+
 ### 方式一：浮动 Lens 按钮（推荐）
 
 1. 在网页上划词选中文本。
 2. 选区旁浮现 `Lens` 按钮，点击打开侧边栏并载入 DOM 上下文。
 3. 如需附加整篇网页正文，勾选 `附加完整文章上下文`。
 4. 在输入框中输入诉求，回车发送。
+
+![ContextLens 选词交互](referrence/case1.png)
 
 ### 方式二：右键上下文菜单
 
