@@ -1,84 +1,174 @@
-# ContextLens Chrome 浏览器插件
+# ContextLens — 智能 AI 侧边栏 Chrome 插件
 
-ContextLens 是一款兼具极佳视觉美感与卓越性能的 Chrome 浏览器插件。它允许您在任意网页上划词选中任意文本，即时在右侧的磨砂玻璃悬浮侧边栏中与 AI 大模型进行交互。插件会自动抓取选中区域的深层 DOM 上下文（如完整的 enclosing 代码块、结构化表格和上下相邻段落）以及可选的精简版整篇网页正文，帮助 AI 提供极具洞察力的深度解答。
+ContextLens 是一款 Chrome 浏览器插件，让您在任意网页上划词选中文本，即时在侧边栏中与 AI 大模型交互。插件自动抓取选中区域的深层 DOM 上下文（完整代码块、表格、上下段落），以及可选的整篇网页正文，帮助 AI 提供精准的深度解答。
 
----
-
-## ✨ 核心特性
-
-- **🚀 即时选词唤醒**：在网页上选中任何文本，光标旁会立即浮现精美的「Lens」按钮，点击即可瞬间载入侧边栏并触发对话。
-- **📱 常驻系统侧边栏**：利用 Chrome 原生的 Side Panel API 运作。切换标签页或浏览其他页面时，对话上下文依然完好保留。
-- **🔌 广泛的多模型支持**：无缝直连各大主流官方 API 与本地开发环境：
-  - **Google Gemini API** (例如：`gemini-2.5-flash`, `gemini-2.5-pro` 等官方模型)
-  - **OpenAI API** (例如：`gpt-4o-mini`, `gpt-4o`, `o1-mini` 等)
-  - **Anthropic Claude API** (例如：`claude-3-5-sonnet-latest`, `claude-3-5-haiku-latest` 等)
-  - **自定义 / 本地 API (Custom / Local APIs)** (兼容 OpenAI 规范的本地/第三方接口，如 Ollama, LM Studio, vLLM 等)
-- **🔄 本地模型智能同步**：专为本地/第三方开发者设计。在 Custom API 模式下提供 `🔄 Sync` 同步按钮，支持一键轮询探测可用模型，将枯燥的手动输入转化为下拉列表，同时支持流畅的手动输入退回。
-- **💡 智能全页上下文融合**：提供一键勾选的「附加完整文章上下文」复选框，借助高效的 HTML 语义解析器过滤广告、导航等网页噪音，将整篇干净的 Markdown 正文作为大模型的辅助认知 background。
-- **🔮 极客范磨砂玻璃设计**：基于现代 CSS Grid/Flex 与 Glassmorphism 设计规范，拥有丝滑的折叠动画、代码高亮渲染、Loader 微动效和状态呼吸灯。
-- **🔒 安全与隐私至上**：您的所有 API 密钥直接存储在您本人的本地浏览器存储中（`chrome.storage.local`），完全不经过任何中间服务器，点对点直连大模型端点。
+同时支持 **本地 CLI 编程代理**（Claude Code、Codex CLI、Gemini CLI），通过 Bridge Server 将选中 UI 文本直接发送给本地代理，实现"选中 → 定位代码 → 自动修改"的开发闭环。
 
 ---
 
-## 🚀 安装指南
+## 核心特性
 
-本插件基于 Chrome **Manifest V3** 规范开发，您可以直接以「已解压的扩展程序」形式进行本地加载开发：
-
-1. 克隆或下载本项目文件夹到您的本地路径。
-2. 打开 Google Chrome 浏览器，在地址栏输入并访问 `chrome://extensions/`。
-3. 勾选右上角的 **开发者模式 (Developer mode)** 开关。
-4. 点击左上角的 **加载已解压的扩展程序 (Load unpacked)** 按钮。
-5. 选择包含本项目的根文件夹（即包含 `manifest.json` 的 `ContextLens` 目录）。
-6. (推荐) 在 Chrome 工具栏的拼图图标中，将 **ContextLens** 插件固定 (Pin)，以获得最便捷的呼出体验。
-
----
-
-## ⚙️ 智能 AI 配置
-
-在首次开始体验前，您只需进行简单的 AI 服务端点配置：
-
-1. 点击工具栏的 ContextLens 图标或选中网页文本触发打开右侧 Side Panel。
-2. 点击侧边栏顶部的 **设置 (齿轮)** 按钮，或者点击欢迎卡片上的 **Configure AI Settings**。
-3. 在弹出的 AI Configuration 抽屉中选择您的 **AI Provider**：
-   - **如果您选择官方 API (Gemini, OpenAI, Claude)**：
-     - 输入您的官方 API Key。
-     - 从下拉列表中选择您偏好的主打模型。
-   - **如果您选择本地 / 第三方 API (如 Ollama, LM Studio 等)**：
-     - 将 Provider 切换为 **Custom / Local API**。
-     - 在 **Custom Endpoint Base URL** 输入框中填写本地端点基准地址（例如 Ollama 默认为 `http://localhost:11434`，LM Studio 默认为 `http://localhost:1234/v1`）。
-     - 点击旁边的 **`🔄 Sync`** 同步按钮。插件会自动轮询各个可用端点，并在成功获取本地模型后瞬间将输入框转为下拉选择框，您可以非常优雅地直接点选需要的本地模型（如 `llama3`, `qwen2.5:7b`）。
-     - (可选) 如果列表未囊括您的特殊模型，您随时可以下拉选择最底部的 `✍️ Type Manually...` 退回至纯文本框手动输入 model name。
-4. 点击底部的 **Save Configuration** 提交保存。看到侧边栏最底部的连接状态呼吸灯转为绿色的 **Online** 状态，即代表配置成功！
+- **即时选词唤醒**：选中网页文本，光标旁立即浮现 Lens 按钮，点击载入侧边栏触发对话。
+- **常驻侧边栏**：基于 Chrome Side Panel API，切换标签页时对话上下文依然保留。
+- **智能 DOM 上下文提取**：自动检测选区所属的代码块（含语言标识）、表格（Markdown 格式化）、标题层级、前后文窗口、页面语义路径、图片元信息。
+- **全页上下文融合**：一键勾选附加整篇网页正文（语义解析、去噪、Markdown 化），为 AI 提供完整背景。
+- **多模型 API 支持**：直连 Google Gemini、OpenAI、Anthropic Claude 官方 API，以及兼容 OpenAI 规范的自定义 / 本地 API（Ollama、LM Studio、vLLM 等）。
+- **本地编程代理**：通过 Bridge Server 对接 Claude Code、Codex CLI、Gemini CLI，选中 UI 文本即可让本地代理定位源码并执行修改。
+- **URL 自动切换规则**：基于 glob 通配符的域名规则引擎，自动为不同网站切换模型和代理工作目录。
+- **标签页隔离**：每个标签页独立维护聊天历史、选区上下文和模型状态，互不干扰。
+- **实时流式输出**：所有模型均支持 SSE 流式响应，本地代理额外展示执行日志、思考过程和工具调用。
+- **运行中可中断**：模型请求进行中时，发送按钮自动切换为红色方块中断按钮；点击可立即终止请求（支持等待首包和流式阶段）。
+- **模型配置弹窗优化**：新增/编辑模型时切换 Provider 会自动重置无关字段，避免残留 Custom 配置；模型同步成功提示会自动消失。
+- **磨砂玻璃设计**：Glassmorphism 美学规范，折叠动画、代码高亮、状态呼吸灯。
 
 ---
 
-## 💡 使用方法
+## 安装指南
 
-ContextLens 提供了两种高度流畅的选词分析模式：
+### 1. 安装 Chrome 插件
 
-### 方式一：浮动 Lens 图标（推荐体验）
-1. 在网页上鼠标划词选中任何一段代码、数据表格或段落。
-2. 选区右下方会立即动态浮现一个精致的 `🔮 Lens` 按钮。
-3. 点击该按钮，右侧 Side Panel 会自动打开并载入该文本的深度 DOM 关联。**此时插件不会立即发送，而是将其作为卡片展示在输入框上方。**
-4. 如果需要将该段文字所属的**整篇网页正文精简版**作为辅助背景，请勾选 context 卡片下方的 `💡 附加完整文章上下文`。
-5. 在侧边栏底部的文本输入框中输入您的个性化诉求（如：“解释这行代码”、“总结这组数据”），回车或点击发送即可展开深度对话。
+基于 Chrome Manifest V3，以已解压的扩展程序加载：
+
+1. 克隆或下载本项目到本地。
+2. Chrome 地址栏输入 `chrome://extensions/`，开启 **开发者模式**。
+3. 点击 **加载已解压的扩展程序**，选择项目根目录（包含 `manifest.json` 的文件夹）。
+4. 在 Chrome 工具栏将 ContextLens **固定 (Pin)** 以获得最佳体验。
+
+### 2. 启动 Bridge Server（可选，本地代理功能需要）
+
+如需使用 Claude Code / Codex CLI / Gemini CLI 本地代理功能：
+
+```bash
+cd bridge
+npm install
+node server.js
+```
+
+Bridge Server 默认运行在 `http://localhost:3100`，插件会自动探测本地代理可用性。
+
+---
+
+## AI 配置
+
+1. 点击侧边栏顶部的 **设置 (齿轮)** 按钮。
+2. 在 **Basic Config** 标签页中管理模型：
+   - **本地代理**：自动检测已安装的 CLI 代理（Claude Code、Codex、Gemini），显示可用状态和版本。点击 **Refresh Agents** 重新探测。
+   - **API 模型**：点击模型卡片列表中的 **+ Add API Model**，选择 Provider（Gemini / OpenAI / Claude / Custom），输入 API Key 和模型名称。Custom API 支持 Sync 按钮一键拉取可用模型列表。
+   - **表单行为**：在模型弹窗中切换 Provider 时，会清空并重置当前 Provider 不适用的字段；同步成功提示会在短时间后自动收起。
+3. 在 **Auto-Switch Rules** 标签页中配置 URL 规则：
+   - 创建规则：名称、URL 模式（支持 `*` 通配符）、目标模型、CWD 工作目录（本地代理专用）。
+   - 规则按优先级排序，支持启用 / 禁用开关。
+4. 点击 **Save Configuration** 保存。侧边栏底部状态灯转绿即代表配置成功。
+
+---
+
+## 使用方法
+
+![ContextLens 主界面](referrence/main.png)
+
+### 方式一：浮动 Lens 按钮（推荐）
+
+1. 在网页上划词选中文本。
+2. 选区旁浮现 `Lens` 按钮，点击打开侧边栏并载入 DOM 上下文。
+3. 如需附加整篇网页正文，勾选 `附加完整文章上下文`。
+4. 在输入框中输入诉求，回车发送。
+
+![ContextLens 选词交互](referrence/case1.png)
 
 ### 方式二：右键上下文菜单
-1. 选中网页上的文本。
-2. 右键单击该文本，在弹出的右键菜单中选择 **Ask ContextLens**。
-3. 侧边栏会自动展露，载入相同的选中语境，您可以继续进行追问或勾选全页分析。
 
-如果您想结束当前问题或者想要更换选词，只需点击选区卡片右上角的 **Clear** 按钮即可清空当前的网页上下文。
+1. 选中网页文本（或右键点击任意元素，包括图片、按钮）。
+2. 右键选择 **Ask ContextLens**，侧边栏自动载入上下文。
+
+### 本地代理模式
+
+1. 确保 Bridge Server 已启动，且至少一个 CLI 代理已安装。
+2. 在设置中选中本地代理模型，或通过 URL 规则自动切换。
+3. 选中网页上的 UI 文本，插件自动构建定位源码的 Prompt 模板。
+4. 侧边栏以三段卡片展示代理输出：**输入上下文** → **执行日志**（含思考、工具调用） → **执行结果**。
+
+### 快捷模型切换
+
+点击侧边栏底部的状态灯，弹出模型快捷面板：
+- **Temporary Switch**：仅当前标签页临时切换模型。
+- **Create Domain Rule**：基于当前页面 URL 快速创建自动切换规则。
 
 ---
 
-## 🛠️ 项目文件结构
+## 项目结构
 
-- `manifest.json`：Chrome 插件的核心配置文件，声明了侧边栏权限、会话存储及内容注入规则。
-- `background.js`：插件服务工作线程 (Service Worker)，负责接收划词右键指令、控制侧边栏生命周期并传递会话数据。
-- `content.js` & `content.css`：注入到目标网页的脚本与样式，负责拦截鼠标鼠标划词、寻找最近标题/包裹代码块/表格等深度 DOM 上下文，以及生成浮动 Lens 按钮。
-- `sidepanel/`：侧边栏的专属核心 UI 组件：
-  - `sidepanel.html`：包含主页、配置抽屉、精美折叠风琴折（Context Insights Accordion）的静态布局。
-  - `sidepanel.css`：基于 CSS Grid/Flex 的暗色磨砂玻璃美学规范。
-  - `sidepanel.js`：驱动多端点统一流式交互（SSE / EventStream 转换）、状态持久化、本地大模型拉取同步和 prompt 高阶装配的核心逻辑。
-- `generate_icons.py`：快捷生成开发测试所需的图标集。
+```
+ContextLens/
+  manifest.json            # Chrome 插件配置 (MV3)
+  background.js            # Service Worker：侧边栏生命周期、右键菜单、会话传递
+  content.js               # 内容脚本：划词检测、DOM 上下文提取、浮动按钮
+  content.css              # 浮动按钮样式
+  sidepanel/
+    sidepanel.html          # 侧边栏布局
+    sidepanel.css           # 磨砂玻璃美学规范 (2700+ 行)
+    sidepanel.js            # 核心逻辑：多端点流式交互、规则引擎、状态持久化
+  bridge/
+    package.json            # Bridge Server 配置
+    server.js               # Node.js 桥接：代理探测、CLI 调度、SSE 流转发
+  icons/                    # 插件图标集
+  referrence/               # 产品截图
+```
+
+---
+
+## 技术细节
+
+### DOM 上下文提取
+
+content.js 在选区周围提取以下结构化信息：
+
+| 上下文类型 | 提取逻辑 |
+|---|---|
+| 代码块 | 向上查找 `<pre>/<code>`，提取完整内容并检测语言（`language-*` 类名） |
+| 表格 | 查找 `<table>` 父元素，格式化为 Markdown 表格 |
+| 标题 | 向前扫描 `h1-h6`，获取所属章节标题 |
+| 文本窗口 | 提取选区前后各 800 字符的滑动窗口 |
+| 图片 | 提取选区内最多 5 张图片的元信息（alt、尺寸、src） |
+| 语义路径 | 构建如 `main > article > section#content > p` 的 CSS breadcrumb |
+| 全页正文 | 语义选择器提取主内容（≤6000 字符），去噪后 Markdown 化 |
+| Meta 信息 | 读取 `<meta description>` 和 `og:description` |
+
+### Bridge Server 代理调度
+
+| 代理 | CLI 命令 | 输出格式 |
+|---|---|---|
+| Claude Code | `claude -p <prompt> --output-format=stream-json` | Stream JSON (assistant / tool_use / result) |
+| Codex CLI | `codex exec --json -C <dir> <prompt>` | JSON (agent_message / function_call / function_result) |
+| Gemini CLI | `gemini --output-format=stream-json <prompt>` | Stream JSON (content / reasoning / tool_call) |
+
+### URL 规则引擎
+
+规则匹配采用 glob 通配符模式，优先级通过特异性评分和手动排序双重控制：
+
+1. **临时切换**（最高优先级）—— 仅当前标签页生效。
+2. **URL 规则** —— 按排序顺序匹配，更具体的模式优先。
+3. **默认模型** —— 无规则匹配时回退。
+
+### 流式输出解析
+
+所有 API 代理均使用 SSE 流式传输，本地代理额外解析以下事件类型：
+
+- `assistant / agent_message / content` → 渲染为文本
+- `thinking / reasoning` → 渲染为可折叠思考过程
+- `tool_use / tool_call / function_call` → 渲染为系统日志（含参数）
+- `tool_result / function_result / command_execution` → 渲染为系统日志（含输出）
+- `error` → 渲染为错误提示
+
+---
+
+## 安全与隐私
+
+- 所有 API 密钥存储在 `chrome.storage.local`，不经过任何中间服务器。
+- Bridge Server 仅运行在本地 `localhost:3100`，不暴露到外网。
+- API 请求点对点直连大模型端点，插件本身不转发任何数据。
+
+---
+
+## License
+
+MIT

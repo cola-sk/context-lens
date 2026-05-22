@@ -7,8 +7,8 @@
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 6px !important;
-  padding: 5px 12px !important;
+  gap: 0 !important;
+  padding: 3px 6px !important;
   
   /* Reset styles to isolate from host website's pollution */
   margin: 0 !important;
@@ -21,19 +21,16 @@
   cursor: pointer !important;
   user-select: none !important;
   
-  /* Glassmorphism Dark Theme Styling */
-  color: #f8fafc !important; /* slate-50 */
-  background: rgba(15, 23, 42, 0.85) !important; /* slate-900 with opacity */
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 9999px !important; /* Pill shape */
+  /* Clean White Theme Styling */
+  color: #4f46e5 !important; /* indigo-600 */
+  background: #ffffff !important;
+  border: 1px solid rgba(79, 70, 229, 0.15) !important;
+  border-radius: 8px !important;
   
-  /* Box Shadow & Glow */
-  box-shadow: 
-    0 4px 16px -2px rgba(15, 23, 42, 0.3),
-    0 0 0 1px rgba(99, 102, 241, 0.1), /* Indigo accent shadow */
-    0 0 12px 1px rgba(99, 102, 241, 0.15) !important;
+  /* Box Shadow */
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(79, 70, 229, 0.06) !important;
   
   /* Smooth transitions */
   transition: 
@@ -48,37 +45,36 @@
 
 /* Hover effects */
 #contextlens-floating-btn:hover {
-  background: rgba(30, 41, 59, 0.95) !important; /* slate-800 with opacity */
-  border-color: rgba(99, 102, 241, 0.6) !important; /* Glow border */
-  color: #a5b4fc !important; /* indigo-300 */
-  transform: scale(1.06) translateY(-1px) !important;
-  box-shadow: 
-    0 6px 20px -2px rgba(15, 23, 42, 0.4),
-    0 0 0 1px rgba(99, 102, 241, 0.2),
-    0 0 16px 3px rgba(99, 102, 241, 0.3) !important; /* Stronger glow on hover */
+  background: #ffffff !important;
+  border-color: rgba(79, 70, 229, 0.3) !important;
+  color: #4338ca !important; /* indigo-700 */
+  transform: scale(1.08) translateY(-1px) !important;
+  box-shadow:
+    0 4px 12px rgba(79, 70, 229, 0.15),
+    0 0 0 1px rgba(79, 70, 229, 0.1) !important;
 }
 
 /* Clicking effect */
 #contextlens-floating-btn:active,
 #contextlens-floating-btn.contextlens-clicked {
-  transform: scale(0.95) translateY(0) !important;
-  background: rgba(15, 23, 42, 0.95) !important;
-  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.3) !important;
+  transform: scale(0.92) translateY(0) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06) !important;
 }
 
 /* Icon style adjustments */
-#contextlens-floating-btn svg {
+#contextlens-floating-btn svg,
+#contextlens-floating-btn img {
   display: block !important;
   flex-shrink: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
-  color: #818cf8 !important; /* Indigo icon default */
-  transition: color 0.2s ease !important;
+  transition: transform 0.2s ease !important;
 }
 
-#contextlens-floating-btn:hover svg {
-  color: #6366f1 !important; /* Vibrant indigo on hover */
-  animation: contextlens-spin 4s linear infinite;
+#contextlens-floating-btn:hover svg,
+#contextlens-floating-btn:hover img {
+  transform: scale(1.1) !important;
 }
 
 /* Hidden state with transitions */

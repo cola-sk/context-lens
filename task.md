@@ -1,0 +1,26 @@
+- `[x]` Create `bridge/` directory and implement Node.js bridge server (`server.js` & `package.json`)
+- `[x]` Update Chrome Extension UI in `sidepanel.html` (add options and form inputs for CWD, Claude Path, Bridge URL)
+- `[x]` Update Chrome Extension logic in `sidepanel.js` (handle settings drawer form, appSettings defaults, visibility toggles, and streaming requests via local bridge)
+- `[x]` Add a script and instructions for running the bridge in `package.json`
+- `[x]` Implement robust model/provider settings cache and persistence mechanism (seamless tab draft caching, automatic fallback initialization merge)
+- `[x]` Verify the end-to-end integration and create walkthrough
+- `[x]` Fix the 3-second stdin block by adding `stdio: ['ignore', 'pipe', 'pipe']` to `spawn` call in `bridge/server.js`
+- `[x]` Design and implement specialized local agent prompt templates in `sidepanel/sidepanel.js` to direct Claude Code to find and edit source files
+- `[x]` Verify execution speed and correctness locally
+- `[x]` Expand context menu registration to contexts: `["all"]` in `background.js`
+- `[x]` Handle right-click element context fallback in `background.js` menu handler
+- `[x]` Track `'contextmenu'` events and implement `compileElementContext(element)` in `content.js`
+- `[x]` Update `'GET_RICH_CONTEXT'` message listener in `content.js` to support element fallback
+- `[x]` Enhance right-click element context capturing with proactive zero-latency caching, iframe support, and dynamic self-healing injection
+- `[x]` Verify right-click element context capture end-to-end
+- `[x]` Support real-time tool calling and thinking processes of the Claude Code local agent in progress log window
+- `[x]` Support URL-based Auto-switching Rules for AI Providers & Workspaces
+- `[x]` Refactor Model Configuration to List View and Add Model Feature
+  - `[x]` Update `sidepanel.html` to remove matched rule banner and introduce model-list-container structure
+  - `[x]` Update `sidepanel.css` with layout, item pill, active style, and custom delete button CSS
+  - `[x]` Update `sidepanel.js` to initialize, migrate, render custom model lists, bind add button, and support rules selector
+  - `[x]` Run Javascript compilation sanity test on `sidepanel.js`
+  - `[x]` Repackage Chrome Extension as `ContextLens-v1.0.0.zip` using `package-extension.sh`
+- `[x]` Fix chat styling and input visibility bug (resolve nested footer inside settings-drawer in sidepanel.html)
+- `[x]` Fix final Claude Code execution results display bug (resolve swallowed JSON events in bridge/server.js and rigid separator splits in sidepanel.js)
+

@@ -3,6 +3,8 @@
 let floatBtn = null;
 let currentSelectionText = "";
 let currentSelectionContext = null; // Caches rich DOM context on selection mouseup
+let lastRightClickElement = null;
+let lastRightClickContext = null; // Caches rich DOM context on right click
 
 console.log("🔮 [ContextLens] Content script loaded successfully! Ready to capture text selections with DOM context.");
 
@@ -165,6 +167,100 @@ function getSurroundingText(range, charLimit = 800) {
   return { before: "", after: "" };
 }
 
+function dedupeAndClampImages(images, maxImages = 5) {
+  const seen = new Set();
+  const results = [];
+
+  for (const img of images) {
+    if (!img || !img.src || seen.has(img.src)) continue;
+    seen.add(img.src);
+    results.push(img);
+    if (results.length >= maxImages) break;
+  }
+
+  return results;
+}
+
+function extractImageMeta(imgEl) {
+  if (!imgEl || imgEl.tagName !== "IMG") return null;
+
+  const src = (imgEl.currentSrc || imgEl.src || imgEl.getAttribute("src") || "").trim();
+  if (!src || src.startsWith("data:")) return null;
+  
+  // Analysis for a specific image description encountered:
+  // "[Image: 4-Day Sprint Timeline showing commit activity: Day 1 kickoff with 4 commits, Day 2 evening sprint with 12 commits, Day 3 with 43 commits including sidebar redesign disruption, Day 4 with 22 commits to finish and ship]"
+  //
+  // Analysis:
+  // *   Subject: A 4-day sprint timeline, visualizing commit activity over each day.
+  // *   Key Data Points:
+  //     *   Day 1: 4 commits (kickoff)
+  //     *   Day 2: 12 commits (evening sprint)
+  //     *   Day 3: 43 commits (highest activity, notably including a "sidebar redesign disruption")
+  //     *   Day 4: 22 commits (finish and ship)
+  // *   Interpretation: The image illustrates a development sprint with increasing commit activity up to Day 3,
+  //     which had a significant event ("sidebar redesign disruption") leading to the highest number of commits.
+  //     The sprint concludes on Day 4 with a final push to ship the product.
+  //     This suggests an agile development process with a focus on rapid iteration and deployment,
+  //     with potential challenges (like the redesign disruption) being overcome within the sprint.
+
+  return {
+    src,
+    alt: (imgEl.alt || "").trim(),
+    title: (imgEl.title || "").trim(),
+    width: imgEl.naturalWidth || imgEl.width || 0,
+    height: imgEl.naturalHeight || imgEl.height || 0
+  };
+}
+
+function extractImagesFromRange(range, maxImages = 5) {
+  if (!range) return [];
+
+  const container = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+    ? range.commonAncestorContainer.parentElement
+    : range.commonAncestorContainer;
+
+  if (!container) return [];
+
+  const candidates = [];
+
+  if (container.tagName === "IMG") {
+    const single = extractImageMeta(container);
+    if (single) candidates.push(single);
+  }
+
+  const imgs = container.querySelectorAll ? Array.from(container.querySelectorAll("img")) : [];
+  for (const img of imgs) {
+    try {
+      if (!range.intersectsNode(img)) continue;
+      const meta = extractImageMeta(img);
+      if (meta) candidates.push(meta);
+    } catch (e) {
+      // Skip nodes that cannot be intersection-tested.
+    }
+  }
+
+  return dedupeAndClampImages(candidates, maxImages);
+}
+
+function extractImagesFromElement(element, maxImages = 5) {
+  if (!element) return [];
+
+  const candidates = [];
+
+  if (element.tagName === "IMG") {
+    const single = extractImageMeta(element);
+    if (single) candidates.push(single);
+  }
+
+  const imgs = element.querySelectorAll ? Array.from(element.querySelectorAll("img")) : [];
+  for (const img of imgs) {
+    const meta = extractImageMeta(img);
+    if (meta) candidates.push(meta);
+  }
+
+  return dedupeAndClampImages(candidates, maxImages);
+}
+
 // Extract a highly simplified, token-efficient text extraction of the entire article/webpage
 function getFullPageSimplifiedText(maxChars = 6000) {
   try {
@@ -290,22 +386,7 @@ function createFloatingButton() {
   
   // High-tech lens SVG icon
   floatBtn.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- Context Text Lines (High-tech scanning target) -->
-      <path d="M4 6h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
-      <path d="M4 11h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
-      <path d="M4 16h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
-      <path d="M4 21h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
-      
-      <!-- AI Lens (Concentric scanning circles and handle) -->
-      <circle cx="13" cy="14" r="5" stroke="currentColor" stroke-width="2"/>
-      <circle cx="13" cy="14" r="2" fill="currentColor" opacity="0.3"/>
-      <path d="M16.5 17.5l3.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      
-      <!-- AI Sparkle Star -->
-      <path d="M19 2c0 1.6 1.4 3 3 3c-1.6 0-3 1.4-3 3c0-1.6-1.4-3-3-3c1.6 0 3-1.4 3-3z" fill="currentColor"/>
-    </svg>
-    <span>探索</span>
+    <img src="${chrome.runtime.getURL('icons/icon-floating.png')}" style="width: 36px; height: auto; pointer-events: none;" alt="ContextLens" />
   `;
 
   floatBtn.addEventListener("click", handleButtonClick);
@@ -369,10 +450,10 @@ function showButtonAtSelection(selection) {
     
     // Viewport-relative coordinates + scroll offset
     const viewportTop = rect.bottom + window.scrollY + 8;
-    const viewportLeft = rect.right + window.scrollX - 60;
+    const viewportLeft = rect.right + window.scrollX - 30;
 
-    const btnWidth = 80;
-    const btnHeight = 28;
+    const btnWidth = 48;
+    const btnHeight = 27;
     const maxLeft = window.innerWidth + window.scrollX - btnWidth - 16;
     const minLeft = window.scrollX + 16;
     
@@ -408,12 +489,14 @@ function showButtonAtSelection(selection) {
 
     // 3. Extract full page simplified text context
     const fullPageSimplified = getFullPageSimplifiedText(6000);
+    const images = extractImagesFromRange(range, 5);
 
     currentSelectionContext = {
       contentType: contentType,
       selectedText: currentSelectionText,
       surroundingBefore: surrounding.before,
       surroundingAfter: surrounding.after,
+      images: images,
       parentHeading: parentHeading ? `${parentHeading.tag}: ${parentHeading.text}` : "",
       codeBlock: enclosingCode, // { language, fullCode }
       tableBlock: enclosingTable, // Markdown string
@@ -427,6 +510,87 @@ function showButtonAtSelection(selection) {
     console.log(`🔮 [ContextLens] Rich context compiled successfully. Type: ${contentType}`);
   } catch (err) {
     console.error("❌ [ContextLens] Failed to position floating button or parse DOM context:", err);
+  }
+}
+
+// Compile a rich DOM context for an arbitrary element (used on right click)
+function compileElementContext(element) {
+  if (!element) return null;
+
+  try {
+    let selectedText = element.innerText ? element.innerText.trim() : (element.textContent ? element.textContent.trim() : "");
+    
+    // Support non-text elements (images, inputs, buttons, structural nodes)
+    if (!selectedText && element.tagName === "IMG") {
+      selectedText = `[Image: ${element.alt || element.src || "unnamed"}]`;
+    } else if (!selectedText && (element.tagName === "INPUT" || element.tagName === "TEXTAREA")) {
+      selectedText = `[Input Value: ${element.value || ""} | Placeholder: ${element.placeholder || ""}]`;
+    } else if (!selectedText) {
+      selectedText = `[Empty ${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${element.className ? `.${element.className.split(" ").join(".")}` : ""}]`;
+    }
+
+    const enclosingCode = findEnclosingCodeBlock(element);
+    const enclosingTable = findEnclosingTable(element);
+    const parentHeading = findPrecedingHeading(element);
+
+    let surrounding = { before: "", after: "" };
+    try {
+      const range = document.createRange();
+      range.selectNode(element);
+      surrounding = getSurroundingText(range, 800);
+    } catch (e) {
+      // Sibling fallback if Range selection fails (e.g. for void elements like IMG)
+      let beforeText = "";
+      let afterText = "";
+      let prev = element.previousElementSibling;
+      let count = 0;
+      while (prev && beforeText.length < 800 && count < 3) {
+        beforeText = (prev.innerText || prev.textContent || "") + "\n" + beforeText;
+        prev = prev.previousElementSibling;
+        count++;
+      }
+      let next = element.nextElementSibling;
+      count = 0;
+      while (next && afterText.length < 800 && count < 3) {
+        afterText = afterText + "\n" + (next.innerText || next.textContent || "");
+        next = next.nextElementSibling;
+        count++;
+      }
+      surrounding = {
+        before: beforeText.substring(Math.max(0, beforeText.length - 800)).trim(),
+        after: afterText.substring(0, 800).trim()
+      };
+    }
+
+    let contentType = "text";
+    if (enclosingCode) contentType = "code";
+    else if (enclosingTable) contentType = "table";
+
+    const metaDesc = document.querySelector('meta[name="description"]')?.content || 
+                     document.querySelector('meta[property="og:description"]')?.content || "";
+
+    const semanticPath = buildSemanticPath(element);
+    const fullPageSimplified = getFullPageSimplifiedText(6000);
+    const images = extractImagesFromElement(element, 5);
+
+    return {
+      contentType: contentType,
+      selectedText: selectedText,
+      surroundingBefore: surrounding.before,
+      surroundingAfter: surrounding.after,
+      images: images,
+      parentHeading: parentHeading ? `${parentHeading.tag}: ${parentHeading.text}` : "",
+      codeBlock: enclosingCode,
+      tableBlock: enclosingTable,
+      pageTitle: document.title,
+      pageUrl: window.location.href,
+      pageDescription: metaDesc.trim(),
+      semanticPath: semanticPath,
+      fullPageSimplifiedText: fullPageSimplified
+    };
+  } catch (err) {
+    console.warn("🔮 [ContextLens] Error compiling single element context:", err);
+    return null;
   }
 }
 
@@ -578,7 +742,77 @@ document.addEventListener("mousedown", (e) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_RICH_CONTEXT") {
     console.log("🔮 [ContextLens] Background requested rich selection context.");
-    sendResponse({ success: true, contextData: currentSelectionContext });
+    const selection = window.getSelection();
+    const hasSelection = selection && selection.toString().trim().length > 0;
+    
+    let useSelection = false;
+    if (hasSelection && currentSelectionContext) {
+      if (selection.rangeCount > 0 && lastRightClickElement) {
+        try {
+          const range = selection.getRangeAt(0);
+          // Only use standard highlighted text selection if the right-click occurred inside/intersected that selection
+          if (range.intersectsNode(lastRightClickElement) || lastRightClickElement.contains(range.commonAncestorContainer)) {
+            useSelection = true;
+          }
+        } catch (e) {
+          useSelection = true;
+        }
+      } else {
+        useSelection = true;
+      }
+    }
+    
+    if (useSelection && currentSelectionContext) {
+      console.log("🔮 [ContextLens] User right-clicked inside an active text highlight. Using text selection.");
+      sendResponse({ success: true, contextData: currentSelectionContext });
+    } else if (lastRightClickContext) {
+      console.log("🔮 [ContextLens] User right-clicked a DOM element directly. Using right-clicked element context.");
+      sendResponse({ success: true, contextData: lastRightClickContext });
+    } else {
+      console.log("🔮 [ContextLens] No context available.");
+      sendResponse({ success: false });
+    }
   }
   return true;
 });
+
+// Track the right-clicked element and compile its context (Capturing phase avoids event bubbling blockers)
+document.addEventListener("contextmenu", (e) => {
+  lastRightClickElement = e.target;
+  lastRightClickContext = compileElementContext(e.target);
+
+  // Check if right-click happened inside an active text selection
+  const selection = window.getSelection();
+  const hasSelection = selection && selection.toString().trim().length > 0;
+  let useSelection = false;
+  let contextData = lastRightClickContext;
+
+  if (hasSelection && currentSelectionContext) {
+    if (selection.rangeCount > 0) {
+      try {
+        const range = selection.getRangeAt(0);
+        // Check if selection intersects the clicked element or is enclosing it
+        if (range.intersectsNode(e.target) || e.target.contains(range.commonAncestorContainer)) {
+          useSelection = true;
+          contextData = currentSelectionContext;
+        }
+      } catch (err) {
+        useSelection = true;
+        contextData = currentSelectionContext;
+      }
+    } else {
+      useSelection = true;
+      contextData = currentSelectionContext;
+    }
+  }
+
+  // Pre-emptively send this context to the background script
+  chrome.runtime.sendMessage({
+    type: "RIGHT_CLICK_CONTEXT",
+    contextData: contextData,
+    text: useSelection ? selection.toString().trim() : (contextData ? contextData.selectedText : ""),
+    isSelection: useSelection
+  }).catch((err) => {
+    // Ignore message sending errors (e.g. extension reloaded)
+  });
+}, true);

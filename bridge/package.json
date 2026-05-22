@@ -1,0 +1,11 @@
+{
+  "name": "context-lens-bridge",
+  "version": "1.0.0",
+  "description": "Local Node.js Bridge Server connecting ContextLens Extension to Claude Code CLI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "Antigravity",
+  "license": "MIT"
+}
