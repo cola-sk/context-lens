@@ -1411,6 +1411,29 @@ body.dark-theme {
   border-radius: 8px;
 }
 
+.request-running-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.request-running-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #dc2626;
+  animation: indicator-pulse 1.2s infinite;
+  flex-shrink: 0;
+}
+
 .input-container {
   display: flex;
   align-items: flex-end;
@@ -1425,6 +1448,12 @@ body.dark-theme {
   background: rgba(255, 255, 255, 0.9);
   border-color: rgba(99, 102, 241, 0.4);
   box-shadow: 0 0 12px 1px rgba(99, 102, 241, 0.06);
+}
+
+.input-container.is-running {
+  background: rgba(220, 38, 38, 0.03);
+  border-color: rgba(220, 38, 38, 0.28);
+  box-shadow: 0 0 12px 1px rgba(220, 38, 38, 0.08);
 }
 
 .input-container textarea {
@@ -1464,6 +1493,25 @@ body.dark-theme {
 .send-btn:hover:not(:disabled) {
   background: var(--accent-violet);
   transform: scale(1.05);
+}
+
+.send-btn.is-stop {
+  background: #dc2626;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.3);
+}
+
+.send-btn.is-stop:hover:not(:disabled) {
+  background: #b91c1c;
+  transform: scale(1.02);
+}
+
+.stop-square-icon {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #ffffff;
+  display: inline-block;
 }
 
 .send-btn:disabled {
@@ -2716,5 +2764,4 @@ body.dark-theme .model-list-container {
 .provider-chip-icon {
   font-size: 20px;
 }
-
 

@@ -259,9 +259,14 @@
         <div id="model-quick-list" class="model-quick-list"></div>
       </div>
 
+      <div id="request-running-indicator" class="request-running-indicator hidden">
+        <span class="request-running-dot"></span>
+        <span>模型正在执行中，点击红色方块可中断</span>
+      </div>
+
       <div class="input-container">
         <textarea id="chat-input" placeholder="输入后续提问... (Ctrl + Enter 发送)" rows="1" disabled></textarea>
-        <button id="send-btn" class="send-btn" disabled>
+        <button id="send-btn" class="send-btn" disabled title="发送" aria-label="发送消息">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>

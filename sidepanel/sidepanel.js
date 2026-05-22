@@ -42,6 +42,9 @@ let currentContext = null; // { text, pageUrl, pageTitle }
 let chatHistory = []; // Unified messages history [{ role: 'user'|'assistant', content }]
 let includeFullPageChecked = false; // cached checkbox state for active tab
 let activeReader = null; // Current stream reader to abort if needed
+let activeAbortController = null; // Abort controller for pending fetch before reader is ready
+let isRequestInProgress = false; // Global running state for current streaming request
+let userAbortRequested = false; // Whether user clicked stop during current request
 let customModels = []; // Legacy cache (kept for backward compat with rules)
 let addedProviderModels = {
   gemini: [],
@@ -143,12 +146,23 @@ const clearContextBtn = document.getElementById("clear-context-btn");
 const messagesList = document.getElementById("messages-list");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
+const inputContainer = document.querySelector(".input-container");
+const requestRunningIndicator = document.getElementById("request-running-indicator");
 const connectionStatusPill = document.getElementById("connection-status-pill");
 const connectedModelName = document.getElementById("connected-model-name");
 const modelQuickPopover = document.getElementById("model-quick-popover");
 const modelQuickCloseBtn = document.getElementById("model-quick-close");
 const modelQuickCurrentDomain = document.getElementById("model-quick-current-domain");
 const modelQuickList = document.getElementById("model-quick-list");
+
+const SEND_BUTTON_ICON = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13"></line>
+    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+  </svg>
+`;
+const STOP_BUTTON_ICON = `<span class="stop-square-icon" aria-hidden="true"></span>`;
+const USER_STOP_MESSAGE = "⏹️ 已中断当前请求。";
 
 // Settings Drawer DOM
 const settingsToggle = document.getElementById("settings-toggle");
@@ -202,12 +216,68 @@ const providerModels = {
   ]
 };
 
+function setRequestRunningState(isRunning) {
+  isRequestInProgress = isRunning;
+
+  if (sendBtn) {
+    sendBtn.classList.toggle("is-stop", isRunning);
+    sendBtn.innerHTML = isRunning ? STOP_BUTTON_ICON : SEND_BUTTON_ICON;
+    sendBtn.title = isRunning ? "中断请求" : "发送";
+    sendBtn.setAttribute("aria-label", isRunning ? "中断请求" : "发送消息");
+  }
+
+  if (inputContainer) {
+    inputContainer.classList.toggle("is-running", isRunning);
+  }
+
+  if (requestRunningIndicator) {
+    requestRunningIndicator.classList.toggle("hidden", !isRunning);
+  }
+
+  updateStatusUI();
+}
+
+async function handleStopStreamingRequest() {
+  if (!activeReader && !activeAbortController) {
+    return;
+  }
+
+  userAbortRequested = true;
+
+  if (activeAbortController) {
+    try {
+      activeAbortController.abort("ContextLens user stop request");
+    } catch (e) {
+      console.warn("Failed to abort active request:", e);
+    } finally {
+      activeAbortController = null;
+    }
+  }
+
+  try {
+    if (activeReader) {
+      await activeReader.cancel("ContextLens user stop request");
+    }
+  } catch (e) {
+    console.warn("Failed to cancel active stream reader:", e);
+  } finally {
+    activeReader = null;
+  }
+}
+
+function isAbortError(err) {
+  if (!err) return false;
+  if (err.name === "AbortError") return true;
+  const text = String(err.message || err || "").toLowerCase();
+  return /aborted|aborterror|cancelled|canceled|signal is aborted/.test(text);
+}
+
 // --- INITIALIZATION ---
 
 document.addEventListener("DOMContentLoaded", async () => {
   await loadSettings();
   setupEventListeners();
-  updateStatusUI();
+  setRequestRunningState(false);
   
   // Listen for text selection changes via session storage
   chrome.storage.session.onChanged.addListener((changes) => {
@@ -1836,8 +1906,9 @@ function updateStatusUI() {
   const isLocalAgent = appSettings.apiProvider.endsWith("-agent");
   const hasModel = !!appSettings.modelName;
   const hasKey = appSettings.apiKey || isLocalAgent || appSettings.apiProvider === "custom";
+  const isReadyForChat = hasModel && (hasKey || isLocalAgent);
   
-  if (hasModel && (hasKey || isLocalAgent)) {
+  if (isReadyForChat) {
     connectionStatusPill.className = "status-pill online";
     
     let displayName = appSettings.modelName;
@@ -1851,8 +1922,10 @@ function updateStatusUI() {
 
     connectedModelName.textContent = displayName;
     
-    chatInput.disabled = false;
-    chatInput.placeholder = "针对所选上下文进行提问... (Ctrl + Enter 发送)";
+    chatInput.disabled = isRequestInProgress;
+    chatInput.placeholder = isRequestInProgress
+      ? "模型正在执行中，点击红色方块可中断请求..."
+      : "针对所选上下文进行提问... (Ctrl + Enter 发送)";
     sendBtn.disabled = false;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
@@ -2113,9 +2186,8 @@ async function handleNewSelection(selection, isNewInteraction = false) {
     // chat for this tab so the conversation starts fresh with the new context.
     if (isNewInteraction) {
       // Cancel any in-progress stream
-      if (tabId === currentTabId && activeReader) {
-        try { await activeReader.cancel(); } catch(e) {}
-        activeReader = null;
+      if (tabId === currentTabId && (activeReader || activeAbortController)) {
+        await handleStopStreamingRequest();
       }
       state.chatHistory = [];
     }
@@ -2155,6 +2227,11 @@ async function syncRuntimeSettingsForTab(tabId) {
 
 // Send user message
 async function handleSendMessage() {
+  if (isRequestInProgress) {
+    await handleStopStreamingRequest();
+    return;
+  }
+
   const text = chatInput.value.trim();
   if (!text) return;
 
@@ -2370,7 +2447,14 @@ User Question: ${text}`;
     }
   }
 
-  await triggerAIStreamResponse(fullPrompt, messageTabId, effectiveCwd);
+  userAbortRequested = false;
+  setRequestRunningState(true);
+  try {
+    await triggerAIStreamResponse(fullPrompt, messageTabId, effectiveCwd);
+  } finally {
+    setRequestRunningState(false);
+    userAbortRequested = false;
+  }
 }
 
 // Append a bubble element to the chat stream
@@ -2419,9 +2503,18 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     } catch(e) {}
     activeReader = null;
   }
+  if (activeAbortController) {
+    try {
+      activeAbortController.abort("ContextLens replacing previous request");
+    } catch (e) {}
+    activeAbortController = null;
+  }
+  const abortController = new AbortController();
+  activeAbortController = abortController;
 
   // Check configs
   if (!appSettings.apiKey && appSettings.apiProvider !== "custom" && !appSettings.apiProvider.endsWith("-agent")) {
+    activeAbortController = null;
     appendMessage("assistant", "⚠️ ContextLens 尚未完成配置。请点击右上角打开 AI 服务端配置面板，填写您的 API 密钥并保存！");
     return;
   }
@@ -2497,6 +2590,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       response = await fetch(url, {
         method: "POST",
+        signal: abortController.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: contents,
@@ -2642,6 +2736,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       response = await fetch(url, {
         method: "POST",
+        signal: abortController.signal,
         headers: headers,
         body: JSON.stringify({
           model: modelName,
@@ -2740,6 +2835,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       response = await fetch(url, {
         method: "POST",
+        signal: abortController.signal,
         headers: {
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
@@ -2829,6 +2925,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       response = await fetch(url, {
         method: "POST",
+        signal: abortController.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: promptToSend,
@@ -2942,6 +3039,20 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
     activeReader = null;
     assistantMsgObj.isAgentComplete = true;
+
+    if (userAbortRequested && (!assistantMsgObj.content || !assistantMsgObj.content.trim())) {
+      assistantMsgObj.content = USER_STOP_MESSAGE;
+      if (targetTabId === currentTabId) {
+        let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+        if (!activeBubble) activeBubble = bubbleContent;
+        if (activeBubble) {
+          const logs = assistantMsgObj.systemLogs || systemLogsText || null;
+          const label = assistantMsgObj.agentLabel || null;
+          renderAssistantMessage(activeBubble, assistantMsgObj.content, logs, true, label);
+        }
+      }
+    }
+
     if (targetTabId === currentTabId) {
       saveActiveTabState();
     } else {
@@ -2949,6 +3060,30 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     }
 
   } catch (err) {
+    const wasUserAbort = userAbortRequested || isAbortError(err);
+    if (wasUserAbort) {
+      activeReader = null;
+      assistantMsgObj.isAgentComplete = true;
+      if (!assistantMsgObj.content || !assistantMsgObj.content.trim()) {
+        assistantMsgObj.content = USER_STOP_MESSAGE;
+      }
+      if (targetTabId === currentTabId) {
+        let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+        if (!activeBubble) activeBubble = bubbleContent;
+        if (activeBubble) {
+          const logs = assistantMsgObj.systemLogs || systemLogsText || null;
+          const label = assistantMsgObj.agentLabel || null;
+          renderAssistantMessage(activeBubble, assistantMsgObj.content, logs, true, label);
+        }
+      }
+      if (targetTabId === currentTabId) {
+        saveActiveTabState();
+      } else {
+        persistTabStates();
+      }
+      return;
+    }
+
     console.error("ContextLens AI stream failed:", err);
     const errMsg = `⚠️ API 请求发送失败: ${err.message || "网络错误。"}`;
     assistantMsgObj.content = errMsg;
@@ -2983,6 +3118,8 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     } else {
       persistTabStates();
     }
+  } finally {
+    activeAbortController = null;
   }
 }
 
