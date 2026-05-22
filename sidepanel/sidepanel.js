@@ -3933,20 +3933,39 @@ function renderAssistantMessage(bubbleEl, text, systemLogsText, isComplete, agen
 // --- UTILITY MARKDOWN PARSER ---
 
 // Convert Markdown table to HTML table
+function parseMarkdownTableRow(line) {
+  if (!line) return [];
+  const normalized = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let current = "";
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    // Keep escaped pipe as literal pipe in cell content.
+    if (ch === "\\" && normalized[i + 1] === "|") {
+      current += "|";
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
 function markdownTableToHTML(tableLines) {
   if (tableLines.length < 2) return "";
   
   // Parse header row
-  const headerCells = tableLines[0]
-    .split("|")
-    .map(cell => cell.trim())
-    .filter(cell => cell);
+  const headerCells = parseMarkdownTableRow(tableLines[0]);
   
   // Parse separator row to detect alignment
-  const separatorCells = tableLines[1]
-    .split("|")
-    .map(cell => cell.trim())
-    .filter(cell => cell);
+  const separatorCells = parseMarkdownTableRow(tableLines[1]);
   
   const alignments = separatorCells.map(sep => {
     if (/^:-*:$/.test(sep)) return "center";
@@ -3956,12 +3975,13 @@ function markdownTableToHTML(tableLines) {
   });
   
   // Parse data rows
-  const dataRows = tableLines.slice(2).map(line =>
-    line
-      .split("|")
-      .map(cell => cell.trim())
-      .filter((_, idx) => idx < headerCells.length)
-  );
+  const dataRows = tableLines.slice(2).map(line => {
+    const cells = parseMarkdownTableRow(line);
+    if (cells.length < headerCells.length) {
+      return [...cells, ...new Array(headerCells.length - cells.length).fill("")];
+    }
+    return cells.slice(0, headerCells.length);
+  });
   
   // Build HTML table
   let html = '<table class="md-table"><thead><tr>';
@@ -4294,7 +4314,9 @@ function applyInlineMarkdown(text) {
   if (!text) return "";
 
   const inlineCodeTokens = [];
-  const CODE_SPAN_PH = (i) => `CTXLENS_INLINE_CODE_${i}_PH`;
+  // Use placeholder tokens without markdown-sensitive chars (e.g. "_")
+  // to avoid being mutated by italic/bold parsing before restoration.
+  const CODE_SPAN_PH = (i) => `CTXLENSINCODEPH${i}ZZ`;
   text = text.replace(/`([^`\n]+)`/g, (match, codeContent) => {
     const idx = inlineCodeTokens.length;
     inlineCodeTokens.push(`<code>${codeContent}</code>`);
@@ -4302,7 +4324,7 @@ function applyInlineMarkdown(text) {
   });
 
   const markdownLinkTokens = [];
-  const LINK_PH = (i) => `CTXLENS_INLINE_LINK_${i}_PH`;
+  const LINK_PH = (i) => `CTXLENSINLINKPH${i}ZZ`;
   text = text.replace(/\[([^\]]+)\]\(([^)\s]+(?:\s+"[^"]*")?)\)/g, (match, label, rawUrlWithOptionalTitle) => {
     const idx = markdownLinkTokens.length;
     const urlPart = rawUrlWithOptionalTitle.replace(/\s+"[^"]*"$/, "").trim();
@@ -4335,8 +4357,8 @@ function applyInlineMarkdown(text) {
     return `${prefix}<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${rawUrl}</a>`;
   });
 
-  text = text.replace(/CTXLENS_INLINE_LINK_(\d+)_PH/g, (match, idx) => markdownLinkTokens[parseInt(idx, 10)] || "");
-  text = text.replace(/CTXLENS_INLINE_CODE_(\d+)_PH/g, (match, idx) => inlineCodeTokens[parseInt(idx, 10)] || "");
+  text = text.replace(/CTXLENSINLINKPH(\d+)ZZ/g, (match, idx) => markdownLinkTokens[parseInt(idx, 10)] || "");
+  text = text.replace(/CTXLENSINCODEPH(\d+)ZZ/g, (match, idx) => inlineCodeTokens[parseInt(idx, 10)] || "");
 
   return text;
 }
