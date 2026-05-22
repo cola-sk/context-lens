@@ -175,6 +175,12 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+  // Parse URL to handle trailing slashes and potential host inclusion
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = parsedUrl.pathname.replace(/\/+$/, '') || '/';
+
+  console.log(`[ContextLens Bridge] ${req.method} ${req.url} -> matched path: ${pathname}`);
+
   // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -182,8 +188,15 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Root endpoint for status check
+  if (req.method === 'GET' && (pathname === '/' || pathname === '')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'running', service: 'ContextLens Bridge' }));
+    return;
+  }
+
   // API Route: Chat with Local Claude Agent
-  if (req.method === 'POST' && req.url === '/api/chat') {
+  if (req.method === 'POST' && pathname === '/api/chat') {
     let body = '';
     req.on('data', chunk => {
       body += chunk.toString();
@@ -640,14 +653,14 @@ const server = http.createServer((req, res) => {
   }
 
   // Health check endpoint
-  if (req.method === 'GET' && req.url === '/health') {
+  if (req.method === 'GET' && pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', service: 'ContextLens Bridge', version: '1.1.0' }));
     return;
   }
 
   // Local Agent Discovery endpoint
-  if (req.method === 'GET' && req.url === '/api/agents') {
+  if (req.method === 'GET' && pathname === '/api/agents') {
     // Return cached results if ready; if not yet ready, run synchronously as fallback
     const agents = agentDetectionReady ? cachedAgents : detectLocalAgents();
     res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -697,7 +697,8 @@ async function openModelQuickPopover() {
 // Fetch detected local agents from bridge /api/agents endpoint
 async function fetchLocalAgentsFromBridge(bridgeUrl) {
   try {
-    const res = await fetch(`${bridgeUrl}/api/agents`, {
+    const cleanUrl = bridgeUrl.replace(/\/+$/, "");
+    const res = await fetch(`${cleanUrl}/api/agents`, {
       signal: AbortSignal.timeout(3000)
     });
     if (res.ok) {
@@ -2803,7 +2804,9 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
     } else if (apiProvider.endsWith("-agent")) {
       // Stream via local Node Bridge
-      const url = `${apiUrl}/api/chat`;
+      // Sanitize apiUrl to remove trailing slash
+      const cleanApiUrl = apiUrl.replace(/\/+$/, "");
+      const url = `${cleanApiUrl}/api/chat`;
       
       console.log("[DEBUG] Sending request to local agent:", {
         url,
@@ -3715,11 +3718,11 @@ function applyRuleSettings(rule) {
     }
   }
   
-  // Handle Claude Agent CWD overrides
+  // Handle local agent overrides: always force Bridge URL, clear API key
   if (rule.provider.endsWith("-agent")) {
     appSettings.cwd = rule.cwd || "";
-    // Merge bridge default if needed
-    if (!appSettings.apiUrl) appSettings.apiUrl = DEFAULT_BRIDGE_URL;
+    appSettings.apiUrl = DEFAULT_BRIDGE_URL; // Always override, not just when empty
+    appSettings.apiKey = ""; // Local agents don't use API keys
   }
   
   console.log("[DEBUG] Post-rule settings:", {
