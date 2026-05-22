@@ -147,7 +147,6 @@ const messagesList = document.getElementById("messages-list");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
 const inputContainer = document.querySelector(".input-container");
-const requestRunningIndicator = document.getElementById("request-running-indicator");
 const connectionStatusPill = document.getElementById("connection-status-pill");
 const connectedModelName = document.getElementById("connected-model-name");
 const modelQuickPopover = document.getElementById("model-quick-popover");
@@ -228,10 +227,6 @@ function setRequestRunningState(isRunning) {
 
   if (inputContainer) {
     inputContainer.classList.toggle("is-running", isRunning);
-  }
-
-  if (requestRunningIndicator) {
-    requestRunningIndicator.classList.toggle("hidden", !isRunning);
   }
 
   updateStatusUI();
@@ -1113,6 +1108,7 @@ function setupEventListeners() {
 
   let modalSelectedProvider = "gemini";
   let editingModelId = null; // null = add mode, non-null = edit mode
+  let modalStatusTimer = null;
 
   const providerHints = {
     gemini: "常用: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash",
@@ -1128,7 +1124,19 @@ function setupEventListeners() {
     custom: ""
   };
 
-  function applyProviderToModal(provider) {
+  function clearModalStatus() {
+    if (modalStatusTimer) {
+      clearTimeout(modalStatusTimer);
+      modalStatusTimer = null;
+    }
+    if (modalStatus) {
+      modalStatus.textContent = "";
+      modalStatus.className = "settings-status";
+    }
+  }
+
+  function applyProviderToModal(provider, opts = {}) {
+    const { preserveValues = false } = opts;
     modalSelectedProvider = provider;
     if (modalProviderGrid) {
       modalProviderGrid.querySelectorAll(".provider-chip").forEach(c => {
@@ -1136,12 +1144,26 @@ function setupEventListeners() {
       });
     }
     if (modalModelHint) modalModelHint.textContent = providerHints[provider] || "";
+    clearModalStatus();
     
     // Reset model input vs select visibility
     const nameInput = document.getElementById("modal-model-name");
     const nameSelect = document.getElementById("modal-model-select");
     if (nameInput) nameInput.classList.remove("hidden");
-    if (nameSelect) nameSelect.classList.add("hidden");
+    if (nameSelect) {
+      nameSelect.classList.add("hidden");
+      nameSelect.innerHTML = "";
+    }
+
+    if (!preserveValues) {
+      if (modalApiKey) {
+        modalApiKey.value = "";
+        modalApiKey.type = "password";
+      }
+      if (modalApiUrl) modalApiUrl.value = "";
+      if (modalModelName) modalModelName.value = providerDefaultModels[provider] || "";
+      if (modalModelLabel) modalModelLabel.value = "";
+    }
 
     if (provider === "custom") {
       if (modalUrlGroup) modalUrlGroup.classList.remove("hidden");
@@ -1163,11 +1185,6 @@ function setupEventListeners() {
     if (modalTitle) modalTitle.textContent = "添加 API 模型";
     if (modalSaveBtn) modalSaveBtn.textContent = "添加";
     applyProviderToModal("gemini");
-    if (modalApiKey) { modalApiKey.value = ""; modalApiKey.type = "password"; }
-    if (modalApiUrl) modalApiUrl.value = "";
-    if (modalModelName) modalModelName.value = providerDefaultModels.gemini;
-    if (modalModelLabel) modalModelLabel.value = "";
-    if (modalStatus) { modalStatus.textContent = ""; modalStatus.className = "settings-status"; }
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   }
 
@@ -1178,18 +1195,19 @@ function setupEventListeners() {
     editingModelId = modelId;
     if (modalTitle) modalTitle.textContent = "编辑模型配置";
     if (modalSaveBtn) modalSaveBtn.textContent = "保存";
-    applyProviderToModal(model.provider || "gemini");
+    applyProviderToModal(model.provider || "gemini", { preserveValues: true });
     if (modalApiKey) { modalApiKey.value = model.apiKey || ""; modalApiKey.type = "password"; }
     if (modalApiUrl) modalApiUrl.value = model.apiUrl || "";
     if (modalModelName) modalModelName.value = model.model || "";
     if (modalModelLabel) modalModelLabel.value = model.label || "";
-    if (modalStatus) { modalStatus.textContent = ""; modalStatus.className = "settings-status"; }
+    clearModalStatus();
     if (addApiModelModal) addApiModelModal.classList.remove("hidden");
   };
 
   function closeModal() {
     if (addApiModelModal) addApiModelModal.classList.add("hidden");
     editingModelId = null;
+    clearModalStatus();
   }
 
   if (addApiModelBtn) addApiModelBtn.addEventListener("click", openAddApiModelModal);
@@ -1207,13 +1225,6 @@ function setupEventListeners() {
       const chip = e.target.closest(".provider-chip");
       if (!chip) return;
       applyProviderToModal(chip.dataset.provider);
-      // Only auto-fill model name if in add mode
-      if (!editingModelId && modalModelName) {
-        modalModelName.value = providerDefaultModels[modalSelectedProvider] || "";
-      }
-      if (!editingModelId && modalModelLabel) {
-        modalModelLabel.value = "";
-      }
     });
   }
 
@@ -1224,6 +1235,12 @@ function setupEventListeners() {
       modalApiKey.setAttribute("type", t);
     });
   }
+
+  // Any manual edits should clear stale sync/success status text
+  [modalApiKey, modalApiUrl, modalModelName, modalModelLabel].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("input", () => clearModalStatus());
+  });
 
   // Save API model (handles both add and edit modes)
   if (modalSaveBtn) {
@@ -1715,6 +1732,10 @@ function renderModelSelection(provider, selectedValue) {
 async function handleFetchCustomModels() {
   const syncBtn = document.getElementById("modal-sync-models-btn");
   const modalStatus = document.getElementById("modal-status");
+  if (handleFetchCustomModels._statusTimer) {
+    clearTimeout(handleFetchCustomModels._statusTimer);
+    handleFetchCustomModels._statusTimer = null;
+  }
   
   // Read from modal form fields, not global stubs
   const modalApiUrl = document.getElementById("modal-api-url");
@@ -1870,6 +1891,12 @@ async function handleFetchCustomModels() {
     if (modalStatus) {
       modalStatus.textContent = `✓ 成功同步了 ${fetchedList.length} 个模型！`;
       modalStatus.className = "settings-status success";
+      handleFetchCustomModels._statusTimer = setTimeout(() => {
+        const latestStatus = document.getElementById("modal-status");
+        if (!latestStatus || !latestStatus.classList.contains("success")) return;
+        latestStatus.textContent = "";
+        latestStatus.className = "settings-status";
+      }, 2600);
     }
   } else {
     if (modalStatus) {
