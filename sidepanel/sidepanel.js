@@ -41,10 +41,6 @@ let defaultSettingsBackup = null;
 let currentContext = null; // { text, pageUrl, pageTitle }
 let chatHistory = []; // Unified messages history [{ role: 'user'|'assistant', content }]
 let includeFullPageChecked = false; // cached checkbox state for active tab
-let activeReader = null; // Current stream reader to abort if needed
-let activeAbortController = null; // Abort controller for pending fetch before reader is ready
-let isRequestInProgress = false; // Global running state for current streaming request
-let userAbortRequested = false; // Whether user clicked stop during current request
 let uiLanguage = "zh"; // "zh" | "en"
 let customModels = []; // Legacy cache (kept for backward compat with rules)
 let addedProviderModels = {
@@ -68,6 +64,35 @@ const AUTO_SCROLL_BOTTOM_THRESHOLD = 20;
 const MAX_CLIPBOARD_IMAGE_ATTACHMENTS = 5;
 const MAX_CLIPBOARD_IMAGE_BYTES = 8 * 1024 * 1024;
 let tabPendingClipboardImages = {}; // tabId -> [{ id, dataUrl, mimeType, size, name }]
+let tabRequestStates = {}; // tabId -> { activeReader, activeAbortController, isRequestInProgress, userAbortRequested }
+
+function createRequestState() {
+  return {
+    activeReader: null,
+    activeAbortController: null,
+    isRequestInProgress: false,
+    userAbortRequested: false
+  };
+}
+
+function getTabRequestState(tabId = currentTabId) {
+  if (!tabId) return createRequestState();
+  if (!tabRequestStates[tabId]) {
+    tabRequestStates[tabId] = createRequestState();
+  }
+  return tabRequestStates[tabId];
+}
+
+function isRequestRunningForTab(tabId = currentTabId) {
+  if (!tabId) return false;
+  return !!getTabRequestState(tabId).isRequestInProgress;
+}
+
+function hasPendingRequestForTab(tabId = currentTabId) {
+  if (!tabId) return false;
+  const requestState = getTabRequestState(tabId);
+  return !!(requestState.activeReader || requestState.activeAbortController || requestState.isRequestInProgress);
+}
 
 // Get or initialize state for a tab
 function getTabState(tabId) {
@@ -864,9 +889,7 @@ const providerModels = {
   ]
 };
 
-function setRequestRunningState(isRunning) {
-  isRequestInProgress = isRunning;
-
+function syncRequestControlVisualState(isRunning) {
   if (sendBtn) {
     sendBtn.classList.toggle("is-stop", isRunning);
     sendBtn.innerHTML = isRunning ? STOP_BUTTON_ICON : SEND_BUTTON_ICON;
@@ -877,35 +900,51 @@ function setRequestRunningState(isRunning) {
   if (inputContainer) {
     inputContainer.classList.toggle("is-running", isRunning);
   }
+}
+
+function setRequestRunningState(isRunning, tabId = currentTabId) {
+  if (tabId) {
+    const requestState = getTabRequestState(tabId);
+    requestState.isRequestInProgress = isRunning;
+    if (!isRunning) {
+      requestState.userAbortRequested = false;
+    }
+  }
+
+  if (!tabId || tabId === currentTabId) {
+    syncRequestControlVisualState(isRunning);
+  }
 
   updateStatusUI();
 }
 
-async function handleStopStreamingRequest() {
-  if (!activeReader && !activeAbortController) {
+async function handleStopStreamingRequest(tabId = currentTabId) {
+  if (!tabId) return;
+  const requestState = getTabRequestState(tabId);
+  if (!requestState.activeReader && !requestState.activeAbortController) {
     return;
   }
 
-  userAbortRequested = true;
+  requestState.userAbortRequested = true;
 
-  if (activeAbortController) {
+  if (requestState.activeAbortController) {
     try {
-      activeAbortController.abort("ContextLens user stop request");
+      requestState.activeAbortController.abort("ContextLens user stop request");
     } catch (e) {
       console.warn("Failed to abort active request:", e);
     } finally {
-      activeAbortController = null;
+      requestState.activeAbortController = null;
     }
   }
 
   try {
-    if (activeReader) {
-      await activeReader.cancel("ContextLens user stop request");
+    if (requestState.activeReader) {
+      await requestState.activeReader.cancel("ContextLens user stop request");
     }
   } catch (e) {
     console.warn("Failed to cancel active stream reader:", e);
   } finally {
-    activeReader = null;
+    requestState.activeReader = null;
   }
 }
 
@@ -964,6 +1003,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (e) {
       console.warn("Failed to handle tab update in sidepanel:", e);
     }
+  });
+
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    const requestState = tabRequestStates[tabId];
+    if (requestState?.activeAbortController) {
+      try {
+        requestState.activeAbortController.abort("ContextLens tab closed");
+      } catch (e) {}
+    }
+    delete tabRequestStates[tabId];
+    delete tabPendingClipboardImages[tabId];
   });
 
   // Check if there is already a selection on load
@@ -2647,6 +2697,8 @@ function updateStatusUI() {
   const hasModel = !!appSettings.modelName;
   const hasKey = appSettings.apiKey || isLocalAgent || appSettings.apiProvider === "custom";
   const isReadyForChat = hasModel && (hasKey || isLocalAgent);
+  const isRequestInProgress = isRequestRunningForTab(currentTabId);
+  syncRequestControlVisualState(isRequestInProgress);
   
   if (isReadyForChat) {
     connectionStatusPill.className = "status-pill online";
@@ -2923,6 +2975,9 @@ function rebuildUIForActiveTab() {
       isProgrammaticChatScroll = false;
     });
   }
+
+  // Keep request controls (send/stop icon and disabled state) in sync after tab switches.
+  updateStatusUI();
 }
 
 // Handle selected text arrivals
@@ -2972,8 +3027,8 @@ async function handleNewSelection(selection, isNewInteraction = false) {
     // chat for this tab so the conversation starts fresh with the new context.
     if (isNewInteraction && !isSameSelection) {
       // Cancel any in-progress stream
-      if (tabId === currentTabId && (activeReader || activeAbortController)) {
-        await handleStopStreamingRequest();
+      if (tabId === currentTabId && hasPendingRequestForTab(tabId)) {
+        await handleStopStreamingRequest(tabId);
       }
       state.chatHistory = [];
       state.chatScrollTop = 0;
@@ -3015,8 +3070,8 @@ async function syncRuntimeSettingsForTab(tabId) {
 
 // Send user message
 async function handleSendMessage() {
-  if (isRequestInProgress) {
-    await handleStopStreamingRequest();
+  if (isRequestRunningForTab(currentTabId)) {
+    await handleStopStreamingRequest(currentTabId);
     return;
   }
 
@@ -3251,13 +3306,14 @@ User Question: ${text}`;
     }
   }
 
-  userAbortRequested = false;
-  setRequestRunningState(true);
+  const requestState = getTabRequestState(messageTabId);
+  requestState.userAbortRequested = false;
+  setRequestRunningState(true, messageTabId);
   try {
     await triggerAIStreamResponse(fullPrompt, messageTabId, effectiveCwd, outgoingImageAttachments);
   } finally {
-    setRequestRunningState(false);
-    userAbortRequested = false;
+    setRequestRunningState(false, messageTabId);
+    requestState.userAbortRequested = false;
   }
 }
 
@@ -3366,26 +3422,27 @@ function scrollToBottom(force = false) {
 // Unified Streaming Handler
 async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = "", outgoingImageAttachments = []) {
   const targetTabId = messageTabId || currentTabId;
+  const requestState = getTabRequestState(targetTabId);
 
-  // If a reader is active, abort it
-  if (activeReader) {
+  // Replace only this tab's in-flight request (if any)
+  if (requestState.activeReader) {
     try {
-      await activeReader.cancel();
+      await requestState.activeReader.cancel();
     } catch(e) {}
-    activeReader = null;
+    requestState.activeReader = null;
   }
-  if (activeAbortController) {
+  if (requestState.activeAbortController) {
     try {
-      activeAbortController.abort("ContextLens replacing previous request");
+      requestState.activeAbortController.abort("ContextLens replacing previous request");
     } catch (e) {}
-    activeAbortController = null;
+    requestState.activeAbortController = null;
   }
   const abortController = new AbortController();
-  activeAbortController = abortController;
+  requestState.activeAbortController = abortController;
 
   // Check configs
   if (!appSettings.apiKey && appSettings.apiProvider !== "custom" && !appSettings.apiProvider.endsWith("-agent")) {
-    activeAbortController = null;
+    requestState.activeAbortController = null;
     appendMessage("assistant", t("chat.config_incomplete"));
     return;
   }
@@ -3531,7 +3588,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
 
       reader = response.body.getReader();
-      activeReader = reader;
+      requestState.activeReader = reader;
       const decoder = new TextDecoder();
       let buffer = "";
 
@@ -3695,7 +3752,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
 
       reader = response.body.getReader();
-      activeReader = reader;
+      requestState.activeReader = reader;
       const decoder = new TextDecoder();
       if (targetTabId === currentTabId && bubbleContent) {
         bubbleContent.innerHTML = ""; // Clear loader dots
@@ -3824,7 +3881,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
 
       reader = response.body.getReader();
-      activeReader = reader;
+      requestState.activeReader = reader;
       const decoder = new TextDecoder();
       if (targetTabId === currentTabId && bubbleContent) {
         bubbleContent.innerHTML = "";
@@ -3913,7 +3970,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
 
       reader = response.body.getReader();
-      activeReader = reader;
+      requestState.activeReader = reader;
       const decoder = new TextDecoder();
 
       let agentLabel = t("chat.local_agent");
@@ -4013,11 +4070,11 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
     }
 
-    activeReader = null;
+    requestState.activeReader = null;
     assistantMsgObj.isAgentComplete = true;
     scheduleStreamStatePersist();
 
-    if (userAbortRequested && (!assistantMsgObj.content || !assistantMsgObj.content.trim())) {
+    if (requestState.userAbortRequested && (!assistantMsgObj.content || !assistantMsgObj.content.trim())) {
       assistantMsgObj.content = t("chat.user_stopped");
       scheduleStreamStatePersist();
       if (targetTabId === currentTabId) {
@@ -4034,9 +4091,9 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     commitStreamStatePersist();
 
   } catch (err) {
-    const wasUserAbort = userAbortRequested || isAbortError(err);
+    const wasUserAbort = requestState.userAbortRequested || isAbortError(err);
     if (wasUserAbort) {
-      activeReader = null;
+      requestState.activeReader = null;
       assistantMsgObj.isAgentComplete = true;
       if (!assistantMsgObj.content || !assistantMsgObj.content.trim()) {
         assistantMsgObj.content = t("chat.user_stopped");
@@ -4089,12 +4146,14 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
         `;
       }
     }
-    activeReader = null;
+    requestState.activeReader = null;
     assistantMsgObj.isAgentComplete = true;
     scheduleStreamStatePersist();
     commitStreamStatePersist();
   } finally {
-    activeAbortController = null;
+    if (requestState.activeAbortController === abortController) {
+      requestState.activeAbortController = null;
+    }
   }
 }
 
