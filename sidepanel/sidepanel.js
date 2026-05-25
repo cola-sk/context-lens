@@ -65,6 +65,9 @@ let tabStatesPersistTimer = null;
 let autoScrollEnabled = true;
 let isProgrammaticChatScroll = false;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 20;
+const MAX_CLIPBOARD_IMAGE_ATTACHMENTS = 5;
+const MAX_CLIPBOARD_IMAGE_BYTES = 8 * 1024 * 1024;
+let tabPendingClipboardImages = {}; // tabId -> [{ id, dataUrl, mimeType, size, name }]
 
 // Get or initialize state for a tab
 function getTabState(tabId) {
@@ -139,6 +142,8 @@ function restoreActiveTabState(tabId) {
   chatHistory = [...state.chatHistory];
   includeFullPageChecked = state.includeFullPageChecked;
   autoScrollEnabled = state.autoScrollEnabled !== false;
+  closeChatImagePreview();
+  renderPendingClipboardAttachments();
 }
 
 function isSameSelectionSnapshot(prevSelection, nextSelection) {
@@ -187,11 +192,166 @@ function buildImageContextBlock(images) {
 }
 
 function supportsStructuredImageInput(provider, modelName) {
-  if (provider !== "openai") return false;
-  const model = (modelName || "").toLowerCase();
-  if (!model) return false;
+  // Do not gate attachment forwarding by model name. If provider supports image blocks,
+  // always include attachments in the request payload.
+  return provider === "openai" || provider === "custom";
+}
 
-  return /gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|vision|omni/.test(model);
+function supportsClipboardImages(provider, modelName) {
+  if (provider === "gemini" || provider === "claude") return true;
+  return supportsStructuredImageInput(provider, modelName);
+}
+
+function getPendingClipboardImages(tabId = currentTabId) {
+  if (!tabId) return [];
+  if (!tabPendingClipboardImages[tabId]) {
+    tabPendingClipboardImages[tabId] = [];
+  }
+  return tabPendingClipboardImages[tabId];
+}
+
+function formatAttachmentSize(bytes = 0) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function dataUrlToBase64Image(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mimeType: match[1], base64Data: match[2] };
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read blob as data URL"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function openChatImagePreview(attachment) {
+  if (!chatImagePreviewModal || !chatImagePreviewImg) return;
+  if (!attachment?.dataUrl) return;
+
+  chatImagePreviewImg.src = attachment.dataUrl;
+  chatImagePreviewImg.alt = attachment.name || "image preview";
+  if (chatImagePreviewTitle) {
+    chatImagePreviewTitle.textContent = attachment.name || t("chat.preview_title");
+  }
+  chatImagePreviewModal.classList.remove("hidden");
+}
+
+function closeChatImagePreview() {
+  if (!chatImagePreviewModal || !chatImagePreviewImg) return;
+  chatImagePreviewModal.classList.add("hidden");
+  chatImagePreviewImg.src = "";
+}
+
+function renderPendingClipboardAttachments() {
+  if (!chatAttachments) return;
+
+  const list = getPendingClipboardImages(currentTabId);
+  chatAttachments.innerHTML = "";
+  if (!list.length) {
+    chatAttachments.classList.add("hidden");
+    return;
+  }
+
+  chatAttachments.classList.remove("hidden");
+  list.forEach((att) => {
+    const item = document.createElement("div");
+    item.className = "chat-attachment-item";
+    item.dataset.attachmentId = att.id;
+
+    const thumb = document.createElement("img");
+    thumb.className = "chat-attachment-thumb";
+    thumb.src = att.dataUrl;
+    thumb.alt = att.name || "image";
+    thumb.title = t("chat.preview_open_title");
+    thumb.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openChatImagePreview(att);
+    });
+
+    const meta = document.createElement("div");
+    meta.className = "chat-attachment-meta";
+    const nameEl = document.createElement("div");
+    nameEl.className = "chat-attachment-name";
+    nameEl.textContent = att.name || "image";
+    const sizeEl = document.createElement("div");
+    sizeEl.className = "chat-attachment-size";
+    sizeEl.textContent = formatAttachmentSize(att.size || 0);
+    meta.appendChild(nameEl);
+    meta.appendChild(sizeEl);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "chat-attachment-remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = t("chat.attachment_remove_title");
+    removeBtn.setAttribute("aria-label", t("chat.attachment_remove_title"));
+    removeBtn.addEventListener("click", () => {
+      if (!currentTabId) return;
+      const next = getPendingClipboardImages(currentTabId).filter(img => img.id !== att.id);
+      tabPendingClipboardImages[currentTabId] = next;
+      renderPendingClipboardAttachments();
+    });
+
+    item.appendChild(thumb);
+    item.appendChild(meta);
+    item.appendChild(removeBtn);
+    chatAttachments.appendChild(item);
+  });
+}
+
+async function handleChatInputPaste(event) {
+  if (!currentTabId || !event?.clipboardData) return;
+
+  const imageItems = Array.from(event.clipboardData.items || [])
+    .filter(item => item && item.type && item.type.startsWith("image/"));
+  if (!imageItems.length) return;
+
+  let list = getPendingClipboardImages(currentTabId);
+  const remainingSlots = Math.max(0, MAX_CLIPBOARD_IMAGE_ATTACHMENTS - list.length);
+  if (remainingSlots <= 0) {
+    event.preventDefault();
+    return;
+  }
+
+  const files = imageItems
+    .map(item => item.getAsFile())
+    .filter(Boolean)
+    .slice(0, remainingSlots);
+
+  if (!files.length) return;
+
+  event.preventDefault();
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (!file || file.size > MAX_CLIPBOARD_IMAGE_BYTES) continue;
+
+    try {
+      const dataUrl = await blobToDataUrl(file);
+      if (!dataUrl.startsWith("data:image/")) continue;
+
+      list = getPendingClipboardImages(currentTabId);
+      list.push({
+        id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        dataUrl,
+        mimeType: file.type || "image/png",
+        size: file.size || 0,
+        name: t("chat.clipboard_image_name", { index: list.length + 1 })
+      });
+    } catch (e) {
+      console.warn("Failed to read clipboard image attachment:", e);
+    }
+  }
+
+  tabPendingClipboardImages[currentTabId] = getPendingClipboardImages(currentTabId).slice(0, MAX_CLIPBOARD_IMAGE_ATTACHMENTS);
+  renderPendingClipboardAttachments();
 }
 
 // DOM Elements
@@ -204,6 +364,11 @@ const clearContextBtn = document.getElementById("clear-context-btn");
 const messagesList = document.getElementById("messages-list");
 const chatInput = document.getElementById("chat-input");
 const sendBtn = document.getElementById("send-btn");
+const chatAttachments = document.getElementById("chat-attachments");
+const chatImagePreviewModal = document.getElementById("chat-image-preview-modal");
+const chatImagePreviewTitle = document.getElementById("chat-image-preview-title");
+const chatImagePreviewImg = document.getElementById("chat-image-preview-img");
+const chatImagePreviewCloseBtn = document.getElementById("chat-image-preview-close");
 const inputContainer = document.querySelector(".input-container");
 const connectionStatusPill = document.getElementById("connection-status-pill");
 const connectedModelName = document.getElementById("connected-model-name");
@@ -307,6 +472,14 @@ const I18N = {
     "chat.stop_aria": "中断请求",
     "chat.running_placeholder": "模型正在执行中，点击红色方块可中断请求...",
     "chat.ask_placeholder": "针对所选上下文进行提问... (Ctrl + Enter 发送)",
+    "chat.clipboard_image_name": "剪贴板图片 {index}",
+    "chat.attachment_remove_title": "移除该附件",
+    "chat.preview_open_title": "点击预览大图",
+    "chat.preview_close_title": "关闭预览",
+    "chat.preview_title": "图片预览",
+    "chat.attachment_summary": "📎 已附 {count} 张图片",
+    "chat.image_only_message": "（仅发送了图片附件）",
+    "chat.image_only_prompt": "请分析我上传的图片，并结合上下文回答。",
     "chat.need_api_key": "请配置 API 密钥...",
     "chat.need_model": "请先在设置中选择并保存一个模型...",
     "status.model_no_key": "未配置 API 密钥",
@@ -489,6 +662,14 @@ const I18N = {
     "chat.stop_aria": "Stop request",
     "chat.running_placeholder": "Model is running... Click the red square to stop.",
     "chat.ask_placeholder": "Ask about selected context... (Ctrl + Enter to send)",
+    "chat.clipboard_image_name": "Clipboard image {index}",
+    "chat.attachment_remove_title": "Remove attachment",
+    "chat.preview_open_title": "Preview image",
+    "chat.preview_close_title": "Close preview",
+    "chat.preview_title": "Image Preview",
+    "chat.attachment_summary": "📎 {count} image(s) attached",
+    "chat.image_only_message": "(Image attachment only)",
+    "chat.image_only_prompt": "Please analyze the attached image(s) and respond with useful details.",
     "chat.need_api_key": "Please configure API key...",
     "chat.need_model": "Please select and save a model in settings first...",
     "status.model_no_key": "API key not configured",
@@ -626,6 +807,8 @@ function applyI18nToStaticUI() {
     languageToggleBtn.title = uiLanguage === "zh" ? t("header.switch_to_en") : t("header.switch_to_zh");
     languageToggleBtn.classList.toggle("is-en", uiLanguage === "en");
   }
+
+  renderPendingClipboardAttachments();
 }
 
 // Settings Drawer DOM
@@ -1831,6 +2014,28 @@ function setupEventListeners() {
     }
   });
 
+  chatInput.addEventListener("paste", (e) => {
+    handleChatInputPaste(e);
+  });
+
+  if (chatImagePreviewCloseBtn) {
+    chatImagePreviewCloseBtn.addEventListener("click", () => {
+      closeChatImagePreview();
+    });
+  }
+  if (chatImagePreviewModal) {
+    chatImagePreviewModal.addEventListener("click", (e) => {
+      if (e.target === chatImagePreviewModal) {
+        closeChatImagePreview();
+      }
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && chatImagePreviewModal && !chatImagePreviewModal.classList.contains("hidden")) {
+      closeChatImagePreview();
+    }
+  });
+
   // Toggle visibility of full page simplified text in insights accordion when checked
   const includeFullPageToggle = document.getElementById("include-full-page-context");
   if (includeFullPageToggle) {
@@ -2671,8 +2876,10 @@ function rebuildUIForActiveTab() {
       } else {
         msgEl.innerHTML = `
           <span class="message-sender">${t("chat.user_label")}</span>
-          <div class="message-bubble">${formatMarkdown(contentToDisplay)}</div>
+          <div class="message-bubble"></div>
         `;
+        const bubble = msgEl.querySelector(".message-bubble");
+        renderUserMessageBubble(bubble, contentToDisplay, msg.imageAttachmentCount || 0);
       }
       messagesList.appendChild(msgEl);
     });
@@ -2769,6 +2976,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
       }
       state.chatHistory = [];
       state.chatScrollTop = 0;
+      tabPendingClipboardImages[tabId] = [];
     }
   }
 
@@ -2811,8 +3019,20 @@ async function handleSendMessage() {
     return;
   }
 
-  const text = chatInput.value.trim();
-  if (!text) return;
+  const rawText = chatInput.value.trim();
+  const pendingAttachments = getPendingClipboardImages(currentTabId);
+  const outgoingImageAttachments = pendingAttachments.map(att => ({
+    id: att.id,
+    dataUrl: att.dataUrl,
+    mimeType: att.mimeType,
+    size: att.size,
+    name: att.name
+  }));
+
+  if (!rawText && outgoingImageAttachments.length === 0) return;
+
+  const text = rawText || t("chat.image_only_prompt");
+  const userDisplayText = rawText || t("chat.image_only_message");
 
   const messageTabId = currentTabId; // Capture current tab ID at the start
 
@@ -2822,13 +3042,17 @@ async function handleSendMessage() {
   // Clear input area immediately
   chatInput.value = "";
   chatInput.style.height = "auto";
+  if (messageTabId) {
+    tabPendingClipboardImages[messageTabId] = [];
+  }
+  renderPendingClipboardAttachments();
 
   // Hide welcome screen
   welcomeScreen.classList.add("hidden");
   messagesList.classList.remove("hidden");
 
   // Append user bubble
-  appendMessage("user", text);
+  appendMessage("user", userDisplayText, { imageAttachmentCount: outgoingImageAttachments.length });
 
   // Sync to tab states cache immediately
   if (messageTabId) {
@@ -3029,15 +3253,33 @@ User Question: ${text}`;
   userAbortRequested = false;
   setRequestRunningState(true);
   try {
-    await triggerAIStreamResponse(fullPrompt, messageTabId, effectiveCwd);
+    await triggerAIStreamResponse(fullPrompt, messageTabId, effectiveCwd, outgoingImageAttachments);
   } finally {
     setRequestRunningState(false);
     userAbortRequested = false;
   }
 }
 
+function renderUserMessageBubble(bubbleEl, text, imageAttachmentCount = 0) {
+  if (!bubbleEl) return;
+  bubbleEl.innerHTML = "";
+
+  if (text) {
+    const textNode = document.createElement("div");
+    textNode.innerHTML = formatMarkdown(text);
+    bubbleEl.appendChild(textNode);
+  }
+
+  if (imageAttachmentCount > 0) {
+    const summary = document.createElement("div");
+    summary.className = "user-attachment-summary";
+    summary.textContent = t("chat.attachment_summary", { count: imageAttachmentCount });
+    bubbleEl.appendChild(summary);
+  }
+}
+
 // Append a bubble element to the chat stream
-function appendMessage(role, text) {
+function appendMessage(role, text, options = {}) {
   const isUser = role === "user";
   const msgEl = document.createElement("div");
   msgEl.className = `message ${role}`;
@@ -3052,12 +3294,18 @@ function appendMessage(role, text) {
   } else {
     msgEl.innerHTML = `
       <span class="message-sender">${t("chat.user_label")}</span>
-      <div class="message-bubble">${formatMarkdown(text)}</div>
+      <div class="message-bubble"></div>
     `;
+    const bubble = msgEl.querySelector(".message-bubble");
+    renderUserMessageBubble(bubble, text, options.imageAttachmentCount || 0);
   }
 
   messagesList.appendChild(msgEl);
-  chatHistory.push({ role, content: text });
+  const msgObj = { role, content: text };
+  if (isUser && options.imageAttachmentCount > 0) {
+    msgObj.imageAttachmentCount = options.imageAttachmentCount;
+  }
+  chatHistory.push(msgObj);
   
   // Scroll to bottom
   scrollToBottom();
@@ -3115,7 +3363,7 @@ function scrollToBottom(force = false) {
 }
 
 // Unified Streaming Handler
-async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = "") {
+async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = "", outgoingImageAttachments = []) {
   const targetTabId = messageTabId || currentTabId;
 
   // If a reader is active, abort it
@@ -3195,6 +3443,17 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     const { apiProvider, apiKey, apiUrl, modelName, temperature } = appSettings;
     const contextImages = getContextImages(currentContext?.contextData, 5);
     const canUseStructuredImages = supportsStructuredImageInput(apiProvider, modelName);
+    const canUseClipboardImages = supportsClipboardImages(apiProvider, modelName);
+    const clipboardImageAttachments = canUseClipboardImages
+      ? outgoingImageAttachments
+        .map(att => ({
+          id: att.id,
+          dataUrl: att.dataUrl,
+          mimeType: att.mimeType || "image/png",
+          parsed: dataUrlToBase64Image(att.dataUrl)
+        }))
+        .filter(att => !!att.parsed)
+      : [];
     let response;
     let reader;
 
@@ -3215,17 +3474,43 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Add history (Gemini format: role 'user' or 'model')
       // Retrieve the first user message (which now has full context if updated)
       const firstMsgContent = chatHistory[0]?.content || promptText;
+      const firstMsgParts = [{ text: `${geminiSystem}\n\nUser starts the session with:\n${firstMsgContent}` }];
+      const shouldEmbedFirstMsgClipboardImages = clipboardImageAttachments.length > 0 && (chatHistory.length - 2) === 0;
+      if (shouldEmbedFirstMsgClipboardImages) {
+        clipboardImageAttachments.forEach(att => {
+          firstMsgParts.push({
+            inline_data: {
+              mime_type: att.parsed.mimeType,
+              data: att.parsed.base64Data
+            }
+          });
+        });
+      }
       contents.push({
         role: "user",
-        parts: [{ text: `${geminiSystem}\n\nUser starts the session with:\n${firstMsgContent}` }]
+        parts: firstMsgParts
       });
 
       // Append follow-up chat history (excluding the final assistant streaming bubble)
       for (let i = 1; i < chatHistory.length - 1; i++) {
         const msg = chatHistory[i];
+        const parts = [{ text: msg.content }];
+        const shouldEmbedCurrentClipboardImages = clipboardImageAttachments.length > 0
+          && i === (chatHistory.length - 2)
+          && msg.role === "user";
+        if (shouldEmbedCurrentClipboardImages) {
+          clipboardImageAttachments.forEach(att => {
+            parts.push({
+              inline_data: {
+                mime_type: att.parsed.mimeType,
+                data: att.parsed.base64Data
+              }
+            });
+          });
+        }
         contents.push({
           role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }]
+          parts
         });
       }
 
@@ -3357,20 +3642,34 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Add existing chat logs (excluding the final assistant streaming bubble)
       for (let i = 0; i < chatHistory.length - 1; i++) {
         const msg = chatHistory[i];
-        const shouldEmbedImages = i === 0
+        const shouldEmbedContextImages = i === 0
           && msg.role === "user"
           && msg._contextEmbedded
           && canUseStructuredImages
           && contextImages.length > 0;
+        const shouldEmbedClipboardImages = i === (chatHistory.length - 2)
+          && msg.role === "user"
+          && canUseStructuredImages
+          && clipboardImageAttachments.length > 0;
 
-        if (shouldEmbedImages) {
-          const contentParts = [{ type: "text", text: msg.content }];
-          contextImages.forEach((img) => {
-            contentParts.push({
-              type: "image_url",
-              image_url: { url: img.src }
+        if (shouldEmbedContextImages || shouldEmbedClipboardImages) {
+          const contentParts = [{ type: "text", text: msg.content || t("chat.image_only_prompt") }];
+          if (shouldEmbedContextImages) {
+            contextImages.forEach((img) => {
+              contentParts.push({
+                type: "image_url",
+                image_url: { url: img.src }
+              });
             });
-          });
+          }
+          if (shouldEmbedClipboardImages) {
+            clipboardImageAttachments.forEach((att) => {
+              contentParts.push({
+                type: "image_url",
+                image_url: { url: att.dataUrl }
+              });
+            });
+          }
           messages.push({ role: msg.role, content: contentParts });
         } else {
           messages.push({ role: msg.role, content: msg.content });
@@ -3471,9 +3770,31 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       const messages = [];
       // Compile chat history messages (excluding the final assistant streaming bubble)
       for (let i = 0; i < chatHistory.length - 1; i++) {
+        const msg = chatHistory[i];
+        const shouldEmbedClipboardImages = i === (chatHistory.length - 2)
+          && msg.role === "user"
+          && clipboardImageAttachments.length > 0;
+        if (shouldEmbedClipboardImages) {
+          const contentParts = [{ type: "text", text: msg.content || t("chat.image_only_prompt") }];
+          clipboardImageAttachments.forEach((att) => {
+            contentParts.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: att.parsed.mimeType,
+                data: att.parsed.base64Data
+              }
+            });
+          });
+          messages.push({
+            role: "user",
+            content: contentParts
+          });
+          continue;
+        }
         messages.push({
-          role: chatHistory[i].role === "assistant" ? "assistant" : "user",
-          content: chatHistory[i].content
+          role: msg.role === "assistant" ? "assistant" : "user",
+          content: msg.content
         });
       }
 
@@ -3557,6 +3878,9 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       });
 
       let promptToSend = promptText;
+      if (clipboardImageAttachments.length > 0) {
+        promptToSend = `[User attached ${clipboardImageAttachments.length} clipboard image(s). Local agent bridge currently accepts text-only input, so images are not transmitted directly.]\n\n${promptToSend}`;
+      }
       if (chatHistory.length > 2) {
         let historyPrompt = "You are working in a multi-turn session. Here is the conversation history so far for your reference:\n\n";
         for (let i = 0; i < chatHistory.length - 2; i++) {
