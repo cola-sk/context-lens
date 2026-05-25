@@ -58,7 +58,7 @@ let addedProviderModels = {
 };
 
 // Tab Isolation Cache
-let tabStates = {}; // tabId -> { currentContext, chatHistory, includeFullPageChecked }
+let tabStates = {}; // tabId -> { currentContext, chatHistory, includeFullPageChecked, autoScrollEnabled, chatScrollTop }
 let currentTabId = null;
 let tabTemporaryModelOverrides = {}; // tabId -> { modelId, updatedAt }
 let tabStatesPersistTimer = null;
@@ -68,14 +68,27 @@ const AUTO_SCROLL_BOTTOM_THRESHOLD = 20;
 
 // Get or initialize state for a tab
 function getTabState(tabId) {
-  if (!tabId) return { currentContext: null, chatHistory: [], includeFullPageChecked: false, autoScrollEnabled: true };
+  if (!tabId) return {
+    currentContext: null,
+    chatHistory: [],
+    includeFullPageChecked: false,
+    autoScrollEnabled: true,
+    chatScrollTop: 0
+  };
   if (!tabStates[tabId]) {
     tabStates[tabId] = {
       currentContext: null,
       chatHistory: [],
       includeFullPageChecked: false,
-      autoScrollEnabled: true
+      autoScrollEnabled: true,
+      chatScrollTop: 0
     };
+  }
+  if (typeof tabStates[tabId].autoScrollEnabled !== "boolean") {
+    tabStates[tabId].autoScrollEnabled = true;
+  }
+  if (!Number.isFinite(tabStates[tabId].chatScrollTop) || tabStates[tabId].chatScrollTop < 0) {
+    tabStates[tabId].chatScrollTop = 0;
   }
   return tabStates[tabId];
 }
@@ -105,10 +118,14 @@ function flushPersistTabStates() {
 function saveActiveTabState() {
   if (currentTabId) {
     const state = getTabState(currentTabId);
+    const chatContainer = document.querySelector(".chat-container");
     state.currentContext = currentContext;
     state.chatHistory = [...chatHistory];
     state.includeFullPageChecked = includeFullPageChecked;
     state.autoScrollEnabled = autoScrollEnabled;
+    if (chatContainer) {
+      state.chatScrollTop = Math.max(0, chatContainer.scrollTop || 0);
+    }
     persistTabStates();
   }
 }
@@ -2672,18 +2689,31 @@ function rebuildUIForActiveTab() {
     }
   }
 
-  // Scroll active view to top if it's just selection view, or bottom if there is chat
+  // Restore active scroll position for chat, otherwise reset to top for selection-only view.
+  const chatContainer = document.querySelector(".chat-container");
   if (chatHistory && chatHistory.length > 0) {
-    scrollToBottom();
-  } else {
-    const chatContainer = document.querySelector(".chat-container");
-    if (chatContainer) {
+    if (autoScrollEnabled) {
+      scrollToBottom(true);
+    } else if (chatContainer) {
+      const state = currentTabId ? getTabState(currentTabId) : null;
+      const maxTop = Math.max(0, chatContainer.scrollHeight - chatContainer.clientHeight);
+      const savedTop = state ? Math.min(Math.max(0, state.chatScrollTop || 0), maxTop) : 0;
       isProgrammaticChatScroll = true;
-      chatContainer.scrollTop = 0;
+      chatContainer.scrollTop = savedTop;
       requestAnimationFrame(() => {
         isProgrammaticChatScroll = false;
       });
     }
+  } else if (chatContainer) {
+    isProgrammaticChatScroll = true;
+    chatContainer.scrollTop = 0;
+    if (currentTabId) {
+      const state = getTabState(currentTabId);
+      state.chatScrollTop = 0;
+    }
+    requestAnimationFrame(() => {
+      isProgrammaticChatScroll = false;
+    });
   }
 }
 
@@ -2727,6 +2757,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
     state.includeFullPageChecked = false; // Reset to unchecked for safety
     if (!isSameSelection) {
       state.autoScrollEnabled = true;
+      state.chatScrollTop = 0;
     }
 
     // A new user-triggered selection (Lens button or right-click) resets the
@@ -2737,6 +2768,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
         await handleStopStreamingRequest();
       }
       state.chatHistory = [];
+      state.chatScrollTop = 0;
     }
   }
 
@@ -3033,10 +3065,13 @@ function appendMessage(role, text) {
   return msgEl;
 }
 
-function updateAutoScrollStateForActiveTab() {
+function updateScrollStateForActiveTab() {
   if (!currentTabId) return;
+  const container = document.querySelector(".chat-container");
+  if (!container) return;
   const state = getTabState(currentTabId);
   state.autoScrollEnabled = autoScrollEnabled;
+  state.chatScrollTop = Math.max(0, container.scrollTop || 0);
   schedulePersistTabStates();
 }
 
@@ -3057,8 +3092,8 @@ function setupAutoScrollPauseOnUserScroll() {
     const nextAutoScrollEnabled = isNearBottom(container);
     if (nextAutoScrollEnabled !== autoScrollEnabled) {
       autoScrollEnabled = nextAutoScrollEnabled;
-      updateAutoScrollStateForActiveTab();
     }
+    updateScrollStateForActiveTab();
   }, { passive: true });
 }
 
@@ -3069,6 +3104,11 @@ function scrollToBottom(force = false) {
   if (!force && !autoScrollEnabled) return;
   isProgrammaticChatScroll = true;
   container.scrollTop = container.scrollHeight;
+  if (currentTabId) {
+    const state = getTabState(currentTabId);
+    state.chatScrollTop = Math.max(0, container.scrollTop || 0);
+    schedulePersistTabStates();
+  }
   requestAnimationFrame(() => {
     isProgrammaticChatScroll = false;
   });
