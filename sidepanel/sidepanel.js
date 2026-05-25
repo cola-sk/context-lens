@@ -199,6 +199,7 @@ function supportsStructuredImageInput(provider, modelName) {
 
 function supportsClipboardImages(provider, modelName) {
   if (provider === "gemini" || provider === "claude") return true;
+  if (typeof provider === "string" && provider.endsWith("-agent")) return true;
   return supportsStructuredImageInput(provider, modelName);
 }
 
@@ -3878,9 +3879,6 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       });
 
       let promptToSend = promptText;
-      if (clipboardImageAttachments.length > 0) {
-        promptToSend = `[User attached ${clipboardImageAttachments.length} clipboard image(s). Local agent bridge currently accepts text-only input, so images are not transmitted directly.]\n\n${promptToSend}`;
-      }
       if (chatHistory.length > 2) {
         let historyPrompt = "You are working in a multi-turn session. Here is the conversation history so far for your reference:\n\n";
         for (let i = 0; i < chatHistory.length - 2; i++) {
@@ -3900,7 +3898,12 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
           prompt: promptToSend,
           cwd: effectiveCwd,
           claudePath: appSettings.claudePath || "",
-          agentId: apiProvider
+          agentId: apiProvider,
+          attachments: clipboardImageAttachments.map((att, idx) => ({
+            name: `clipboard-image-${idx + 1}`,
+            mimeType: att.parsed.mimeType,
+            base64Data: att.parsed.base64Data
+          }))
         })
       });
 

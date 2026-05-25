@@ -6,6 +6,77 @@ const os = require('os');
 
 const PORT = 3100;
 
+function extensionFromMimeType(mimeType = '') {
+  const normalized = String(mimeType).toLowerCase();
+  if (normalized === 'image/png') return '.png';
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return '.jpg';
+  if (normalized === 'image/webp') return '.webp';
+  if (normalized === 'image/gif') return '.gif';
+  if (normalized === 'image/bmp') return '.bmp';
+  if (normalized === 'image/svg+xml') return '.svg';
+  return '.img';
+}
+
+function sanitizeAttachmentName(name = '') {
+  const safe = String(name)
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return safe || 'clipboard-image';
+}
+
+function materializeImageAttachments(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return { dirPath: null, files: [] };
+  }
+
+  const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'contextlens-attachments-'));
+  const files = [];
+
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i] || {};
+    const base64Data = typeof att.base64Data === 'string' ? att.base64Data.trim() : '';
+    if (!base64Data) continue;
+
+    try {
+      const ext = extensionFromMimeType(att.mimeType || '');
+      const safeName = sanitizeAttachmentName(att.name || `clipboard-image-${i + 1}`);
+      const filePath = path.join(sessionDir, `${safeName}-${Date.now()}-${i + 1}${ext}`);
+      fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+      files.push({
+        filePath,
+        mimeType: att.mimeType || 'image/*',
+        name: att.name || `clipboard-image-${i + 1}`
+      });
+    } catch (e) {
+      // Ignore invalid attachment payloads and continue with remaining items.
+    }
+  }
+
+  if (files.length === 0) {
+    try {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    } catch (e) {}
+    return { dirPath: null, files: [] };
+  }
+
+  return { dirPath: sessionDir, files };
+}
+
+function buildPromptWithImageFiles(prompt, files) {
+  if (!Array.isArray(files) || files.length === 0) return prompt;
+
+  const lines = files.map((f, idx) => `${idx + 1}. ${f.filePath} (${f.mimeType})`);
+  return `${prompt}
+
+[Attached Clipboard Images]
+The user attached ${files.length} image(s). The bridge has saved them as local files:
+${lines.join('\n')}
+
+Please inspect these image files directly and include them in your answer.`;
+}
+
 function findClaudeExecutable() {
   // 1. Try running which command to find it in the environment path
   try {
@@ -204,13 +275,16 @@ const server = http.createServer((req, res) => {
 
     req.on('end', () => {
       try {
-        const { prompt, cwd, claudePath, agentId } = JSON.parse(body);
+        const { prompt, cwd, claudePath, agentId, attachments } = JSON.parse(body);
 
         if (!prompt) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Prompt is required' }));
           return;
         }
+
+        const attachmentContext = materializeImageAttachments(attachments);
+        const promptWithAttachments = buildPromptWithImageFiles(prompt, attachmentContext.files);
 
         // Set up SSE headers
         res.writeHead(200, {
@@ -250,19 +324,19 @@ const server = http.createServer((req, res) => {
             '--json',
             '--dangerously-bypass-approvals-and-sandbox',
             '-C', runCwd,
-            prompt
+            promptWithAttachments
           ];
         } else if (agentId === 'gemini-agent') {
           // Gemini CLI: gemini --output-format=stream-json --yolo <prompt>
           spawnArgs = [
             '--output-format', 'stream-json',
             '--yolo',
-            prompt
+            promptWithAttachments
           ];
         } else {
           // Claude Code CLI
           spawnArgs = [
-            '-p', prompt,
+            '-p', promptWithAttachments,
             '--print',
             '--output-format=stream-json',
             '--include-hook-events',
@@ -627,6 +701,11 @@ const server = http.createServer((req, res) => {
           
           stdoutBuffer.flush();
           stderrBuffer.flush();
+          if (attachmentContext.dirPath) {
+            try {
+              fs.rmSync(attachmentContext.dirPath, { recursive: true, force: true });
+            } catch (e) {}
+          }
 
           console.log(`🤖 [ContextLens Bridge] ${agentName} exited with code: ${code}`);
           res.write(`data: [DONE]\n\n`);
@@ -637,6 +716,11 @@ const server = http.createServer((req, res) => {
         child.on('error', (err) => {
           if (finished) return;
           finished = true;
+          if (attachmentContext.dirPath) {
+            try {
+              fs.rmSync(attachmentContext.dirPath, { recursive: true, force: true });
+            } catch (e) {}
+          }
           console.error('🤖 [Claude Bridge] Spawning error:', err);
           res.write(`data: ${JSON.stringify({ text: `\n⚠️ Spawning error: ${err.message}\n`, type: 'error' })}\n\n`);
           res.write(`data: [DONE]\n\n`);
