@@ -799,6 +799,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log("🔮 [ContextLens] No context available.");
       sendResponse({ success: false });
     }
+  } else if (message.type === "GET_PAGE_CONTEXT") {
+    console.log("🔮 [ContextLens] Background/Sidepanel requested page-only context.");
+    try {
+      const fullPageSimplified = getFullPageSimplifiedText(6000);
+      const metaDesc = document.querySelector('meta[name="description"]')?.content || 
+                       document.querySelector('meta[property="og:description"]')?.content || "";
+      sendResponse({
+        success: true,
+        contextData: {
+          contentType: "text",
+          selectedText: "",
+          surroundingBefore: "",
+          surroundingAfter: "",
+          images: [],
+          parentHeading: "",
+          codeBlock: null,
+          tableBlock: null,
+          pageTitle: document.title,
+          pageUrl: window.location.href,
+          pageDescription: metaDesc.trim(),
+          semanticPath: "",
+          fullPageSimplifiedText: fullPageSimplified
+        }
+      });
+    } catch (e) {
+      console.warn("🔮 [ContextLens] Error compiling page-only context:", e);
+      sendResponse({ success: false, error: e.toString() });
+    }
   }
   return true;
 });

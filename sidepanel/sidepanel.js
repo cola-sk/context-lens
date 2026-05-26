@@ -1819,6 +1819,18 @@ function setupEventListeners() {
       } catch (e) {
         console.warn("Failed to get active tab info in new chat click:", e);
       }
+
+      let fetchedContextData = null;
+      try {
+        // Request the active tab to compile full page context data so that the full page toggle works!
+        const response = await chrome.tabs.sendMessage(currentTabId, { type: "GET_PAGE_CONTEXT" });
+        if (response && response.success && response.contextData) {
+          fetchedContextData = response.contextData;
+        }
+      } catch (e) {
+        console.warn("[ContextLens] Could not retrieve page context from active tab content script:", e);
+      }
+
       const state = getTabState(currentTabId);
       state.chatHistory = [];
       state.chatScrollTop = 0;
@@ -1830,7 +1842,7 @@ function setupEventListeners() {
         pageUrl: activeUrl || currentContext?.pageUrl || "",
         pageTitle: activeTitle || currentContext?.pageTitle || "",
         timestamp: Date.now(),
-        contextData: null
+        contextData: fetchedContextData
       };
       currentContext = state.currentContext;
       chatHistory = [];
@@ -3277,14 +3289,19 @@ async function handleSendMessage() {
       const contextImages = getContextImages(cd, 5);
       if (appSettings.apiProvider.endsWith("-agent") && effectiveCwd) {
         // Agent mode: only for local/dev pages with workspace configured
-          const workspaceHeader = `You are a local agentic coding assistant running directly in the user's project workspace folder: ${effectiveCwd}.`;
-          const targetCodebaseLine = "Your goal is to search the local workspace codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.";
-          const step1 = `1. Search the local workspace codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) that contains the selected UI text "${cd.selectedText}" or matches this surrounding context.`;
-          const step2 = `2. Edit the file directly in the local workspace codebase to perform the user's instructions: "${text}".`;
+        const workspaceHeader = `You are a local agentic coding assistant running directly in the user's project workspace folder: ${effectiveCwd}.`;
+        const hasSnippet = !!cd.selectedText;
+        const targetCodebaseLine = hasSnippet
+          ? "Your goal is to search the local workspace codebase to locate the file defining this UI element/text, and modify it in place according to their instructions."
+          : "Your goal is to search the local workspace codebase and modify it in place according to their instructions.";
+        const step1 = hasSnippet
+          ? `1. Search the local workspace codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) that contains the selected UI text "${cd.selectedText}" or matches this surrounding context.`
+          : `1. Search the local workspace codebase using tools like grep, find, or search to find the relevant source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) related to the page context.`;
+        const step2 = `2. Edit the file directly in the local workspace codebase to perform the user's instructions: "${text}".`;
 
         // Specialized agentic instructions for codebase edits
-          fullPrompt = `${workspaceHeader}
-The user is viewing a web page and selected a specific element/text. ${targetCodebaseLine}
+        fullPrompt = `${workspaceHeader}
+The user is viewing a web page${hasSnippet ? ' and selected a specific element/text' : ''}. ${targetCodebaseLine}
 
 [Page Context]
 Title: ${currentContext.pageTitle}
@@ -3293,11 +3310,11 @@ ${cd.pageDescription ? `Description/Summary: ${cd.pageDescription}` : ""}
 ${cd.parentHeading ? `Section Heading: ${cd.parentHeading}` : ""}
 ${cd.semanticPath ? `DOM Path Location: ${cd.semanticPath}` : ""}
 
-[Webpage Content Context]
-`;
+${hasSnippet ? `[Webpage Content Context]\n` : ""}`;
 
-        if (cd.contentType === "code" && cd.codeBlock) {
-          fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
+        if (hasSnippet) {
+          if (cd.contentType === "code" && cd.codeBlock) {
+            fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
 Here is the FULL surrounding code block:
 \`\`\`${cd.codeBlock.language || ""}
 ${cd.codeBlock.fullCode}
@@ -3306,18 +3323,19 @@ ${cd.codeBlock.fullCode}
 The user highlighted the following specific line(s)/part:
 "${cd.selectedText}"
 `;
-        } else if (cd.contentType === "table" && cd.tableBlock) {
-          fullPrompt += `This selection lies inside a structured data table.
+          } else if (cd.contentType === "table" && cd.tableBlock) {
+            fullPrompt += `This selection lies inside a structured data table.
 Here is the simplified Markdown table representing the headers and active row:
 ${cd.tableBlock}
 
 The user highlighted the following specific cell text:
 "${cd.selectedText}"
 `;
-        } else {
-          fullPrompt += `Here are the surrounding paragraphs for context:
+          } else {
+            fullPrompt += `Here are the surrounding paragraphs for context:
 ... ${cd.surroundingBefore || ""} [SELECTED TEXT: "${cd.selectedText}"] ${cd.surroundingAfter || ""} ...
 `;
+          }
         }
 
         fullPrompt += buildImageContextBlock(contextImages);
@@ -3339,7 +3357,8 @@ ${step2}
 `;
       } else {
         // Standard non-agent prompt
-        fullPrompt = `You are helping the user analyze a webpage snippet inside a larger page context.
+        const hasSnippet = !!cd.selectedText;
+        fullPrompt = `You are helping the user analyze ${hasSnippet ? 'a webpage snippet inside a larger page context' : 'the current webpage'}.
 Here are the rich details captured from the active browser tab:
 
 [Page Context]
@@ -3350,11 +3369,11 @@ ${cd.pageDescription ? `Description/Summary: ${cd.pageDescription}` : ""}
 ${cd.parentHeading ? `Section Heading: ${cd.parentHeading}` : ""}
 ${cd.semanticPath ? `DOM Path Location: ${cd.semanticPath}` : ""}
 
-[Webpage Content Context]
-`;
+${hasSnippet ? `[Webpage Content Context]\n` : ""}`;
 
-        if (cd.contentType === "code" && cd.codeBlock) {
-          fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
+        if (hasSnippet) {
+          if (cd.contentType === "code" && cd.codeBlock) {
+            fullPrompt += `This selection lies inside a code block (Language: ${cd.codeBlock.language || "unspecified"}).
         
 Here is the FULL surrounding code block:
 \`\`\`${cd.codeBlock.language || ""}
@@ -3364,8 +3383,8 @@ ${cd.codeBlock.fullCode}
 The user highlighted the following specific line(s)/part:
 "${cd.selectedText}"
 `;
-        } else if (cd.contentType === "table" && cd.tableBlock) {
-          fullPrompt += `This selection lies inside a structured data table.
+          } else if (cd.contentType === "table" && cd.tableBlock) {
+            fullPrompt += `This selection lies inside a structured data table.
 
 Here is the simplified Markdown table representing the headers and active row:
 ${cd.tableBlock}
@@ -3373,11 +3392,12 @@ ${cd.tableBlock}
 The user highlighted the following specific cell text:
 "${cd.selectedText}"
 `;
-        } else {
-          // Text type with surrounding paragraphs (sliding window)
-          fullPrompt += `Here are the surrounding paragraphs (sliding window) for context:
+          } else {
+            // Text type with surrounding paragraphs (sliding window)
+            fullPrompt += `Here are the surrounding paragraphs (sliding window) for context:
 ... ${cd.surroundingBefore || ""} [SELECTED TEXT: "${cd.selectedText}"] ${cd.surroundingAfter || ""} ...
 `;
+          }
         }
 
         fullPrompt += buildImageContextBlock(contextImages);
