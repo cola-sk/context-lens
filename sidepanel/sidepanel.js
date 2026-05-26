@@ -3065,7 +3065,8 @@ function rebuildUIForActiveTab() {
           bubble,
           msg.content,
           msg.systemLogs,
-          msg.isAgentComplete !== false,
+          // A message in history is considered complete if it is marked as complete, or if it is not the active stream.
+          (msg.isAgentComplete !== false) || (idx !== chatHistory.length - 1) || !requestState.activeReader,
           msg.agentLabel
         );
       } else {
@@ -4527,6 +4528,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     }
 
     commitStreamStatePersist();
+    saveChatHistory(targetTabId);
 
   } catch (err) {
     const wasUserAbort = requestState.userAbortRequested || isAbortError(err);
@@ -4547,6 +4549,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
         }
       }
       commitStreamStatePersist();
+      saveChatHistory(targetTabId);
       return;
     }
 
@@ -4588,6 +4591,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
     assistantMsgObj.isAgentComplete = true;
     scheduleStreamStatePersist();
     commitStreamStatePersist();
+    saveChatHistory(targetTabId);
   } finally {
     if (requestState.activeAbortController === abortController) {
       requestState.activeAbortController = null;
