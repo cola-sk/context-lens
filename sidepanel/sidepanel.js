@@ -405,6 +405,7 @@ const modelQuickCloseBtn = document.getElementById("model-quick-close");
 const modelQuickCurrentDomain = document.getElementById("model-quick-current-domain");
 const modelQuickList = document.getElementById("model-quick-list");
 const languageToggleBtn = document.getElementById("language-toggle");
+const newChatBtn = document.getElementById("new-chat-btn");
 
 const historyToggle = document.getElementById("history-toggle");
 const historyPopover = document.getElementById("history-popover");
@@ -613,7 +614,9 @@ const I18N = {
     "rules.default_claude_api": "Anthropic Claude 官方 API",
     "rules.default_claude_agent": "Claude Code 本地 Agent",
     "rules.default_codex_agent": "Codex CLI 本地 Agent",
-    "rules.default_gemini_agent": "Gemini CLI 本地 Agent"
+    "rules.default_gemini_agent": "Gemini CLI 本地 Agent",
+    "header.new_chat_title": "新建对话",
+    "context.page_only_loaded": "💡 已导入当前网页上下文（标题及地址）"
   },
   en: {
     "header.settings_title": "AI Service Settings",
@@ -808,7 +811,9 @@ const I18N = {
     "rules.default_claude_api": "Anthropic Claude Official API",
     "rules.default_claude_agent": "Claude Code Local Agent",
     "rules.default_codex_agent": "Codex CLI Local Agent",
-    "rules.default_gemini_agent": "Gemini CLI Local Agent"
+    "rules.default_gemini_agent": "Gemini CLI Local Agent",
+    "header.new_chat_title": "New Chat",
+    "context.page_only_loaded": "💡 Imported current page context (title & URL)"
   }
 };
 
@@ -1793,6 +1798,55 @@ function setupEventListeners() {
       const apiModal = document.getElementById("add-api-model-modal");
       if (apiModal && !apiModal.classList.contains("hidden")) {
         applyProviderToModal(modalSelectedProvider, { preserveValues: true });
+      }
+    });
+  }
+
+  if (newChatBtn) {
+    newChatBtn.addEventListener("click", async () => {
+      if (!currentTabId) return;
+      if (isRequestRunningForTab(currentTabId)) {
+        await handleStopStreamingRequest(currentTabId);
+      }
+      let activeUrl = "";
+      let activeTitle = "";
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]) {
+          activeUrl = tabs[0].url || "";
+          activeTitle = tabs[0].title || "";
+        }
+      } catch (e) {
+        console.warn("Failed to get active tab info in new chat click:", e);
+      }
+      const state = getTabState(currentTabId);
+      state.chatHistory = [];
+      state.chatScrollTop = 0;
+      state.sessionId = null;
+      state.includeFullPageChecked = false;
+      tabPendingClipboardImages[currentTabId] = [];
+      state.currentContext = {
+        text: "",
+        pageUrl: activeUrl || currentContext?.pageUrl || "",
+        pageTitle: activeTitle || currentContext?.pageTitle || "",
+        timestamp: Date.now(),
+        contextData: null
+      };
+      currentContext = state.currentContext;
+      chatHistory = [];
+      includeFullPageChecked = false;
+      autoScrollEnabled = true;
+      
+      rebuildUIForActiveTab();
+      saveActiveTabState();
+      
+      // Clear any static inputs and preview elements
+      renderPendingClipboardAttachments();
+      if (chatInput) {
+        chatInput.value = "";
+        chatInput.disabled = false;
+        chatInput.placeholder = t("chat.placeholder_send");
+        chatInput.focus();
       }
     });
   }
@@ -2788,7 +2842,7 @@ function updateStatusUI() {
     chatInput.disabled = isRequestInProgress;
     chatInput.placeholder = isRequestInProgress
       ? t("chat.running_placeholder")
-      : t("chat.ask_placeholder");
+      : ((!currentContext || currentContext.text === "") ? t("chat.placeholder_send") : t("chat.ask_placeholder"));
     sendBtn.disabled = false;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
@@ -2820,7 +2874,11 @@ function rebuildUIForActiveTab() {
 
   // 1. Re-render Context Banner
   if (currentContext) {
-    contextText.textContent = `"${currentContext.text}"`;
+    if (currentContext.text === "") {
+      contextText.innerHTML = `<span style="opacity: 0.85; font-style: normal; font-weight: normal; color: var(--text-secondary);">${t("context.page_only_loaded")}</span>`;
+    } else {
+      contextText.textContent = `"${currentContext.text}"`;
+    }
     
     // Format source page label
     if (currentContext.pageTitle) {
@@ -3337,8 +3395,13 @@ The user highlighted the following specific cell text:
       if (appSettings.apiProvider.endsWith("-agent") && effectiveCwd) {
         // Agent mode: only for local/dev pages with workspace configured
         const workspaceHeader = `You are a local agentic coding assistant running directly in the user's project workspace folder: ${effectiveCwd}.`;
-        const targetCodebaseLine = "The user is viewing a web page and selected a specific element/text. Your goal is to search the local workspace codebase to locate the file defining this UI element/text, and modify it in place according to their instructions.";
-        const step1 = `1. Search the local workspace codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) containing the selected UI text "${currentContext.text}".`;
+        const hasSnippet = !!currentContext.text;
+        const targetCodebaseLine = hasSnippet
+          ? "The user is viewing a web page and selected a specific element/text. Your goal is to search the local workspace codebase to locate the file defining this UI element/text, and modify it in place according to their instructions."
+          : "The user is viewing a web page. Your goal is to search the local workspace codebase and modify it in place according to their instructions.";
+        const step1 = hasSnippet
+          ? `1. Search the local workspace codebase using tools like grep, find, or search to find the source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) containing the selected UI text "${currentContext.text}".`
+          : `1. Search the local workspace codebase using tools like grep, find, or search to find the relevant source file (React/Vue components, HTML, JS, TS, CSS, JSON, or template files) related to the page context.`;
         const step2 = `2. Edit the file directly in the local workspace codebase to perform the user's instructions: "${text}".`;
 
         fullPrompt = `${workspaceHeader}
@@ -3346,8 +3409,7 @@ ${targetCodebaseLine}
 
 Page Title: ${currentContext.pageTitle}
 Page URL: ${currentContext.pageUrl}
-Selected Snippet: "${currentContext.text}"
-
+${hasSnippet ? `Selected Snippet: "${currentContext.text}"\n` : ""}
 [User Prompt / Instructions]
 ${text}
 
@@ -3356,9 +3418,9 @@ ${step1}
 ${step2}
 3. Verify your changes and output a concise summary of the changes and the git diff.`;
       } else {
-        fullPrompt = `You are helping the user analyze a webpage snippet.
-Selected Snippet: "${currentContext.text}"
-Page Title: ${currentContext.pageTitle}
+        const hasSnippet = !!currentContext.text;
+        fullPrompt = `You are helping the user analyze ${hasSnippet ? 'a webpage snippet' : 'the current webpage'}.
+${hasSnippet ? `Selected Snippet: "${currentContext.text}"\n` : ""}Page Title: ${currentContext.pageTitle}
 Page URL: ${currentContext.pageUrl}
 Note for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.
 
