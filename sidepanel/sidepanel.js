@@ -3514,14 +3514,14 @@ async function saveChatHistory(tabId) {
   }
   
   let url = state.currentContext?.pageUrl || currentContext?.pageUrl || "";
-  let title = state.currentContext?.pageTitle || currentContext?.pageTitle || "";
+  let pageTitle = state.currentContext?.pageTitle || currentContext?.pageTitle || "";
   
   if (!url) {
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tabs[0]) {
         url = tabs[0].url || "";
-        title = tabs[0].title || "";
+        pageTitle = tabs[0].title || "";
         console.log("[ContextLens History] Resolved URL dynamically from tabs.query:", url);
       }
     } catch (e) {
@@ -3533,6 +3533,21 @@ async function saveChatHistory(tabId) {
     console.warn("[ContextLens History] saveChatHistory aborted: URL could not be resolved.");
     return;
   }
+
+  // Resolve chat history summary as the main title
+  let title = "";
+  if (state.chatHistory && state.chatHistory[0]) {
+    const firstMsg = state.chatHistory[0];
+    const cleanText = firstMsg.displayText || firstMsg.content || "";
+    // Clean up carriage returns, newlines and extra spaces
+    title = cleanText.replace(/\s+/g, " ").trim();
+    if (title.length > 40) {
+      title = title.substring(0, 38) + "...";
+    }
+  }
+  if (!title) {
+    title = pageTitle || url;
+  }
   
   try {
     const result = await chrome.storage.local.get(["chatHistories"]);
@@ -3542,7 +3557,7 @@ async function saveChatHistory(tabId) {
     const historyEntry = {
       id: state.sessionId,
       url: url,
-      title: title || url,
+      title: title,
       currentContext: state.currentContext,
       chatHistory: state.chatHistory,
       includeFullPageChecked: state.includeFullPageChecked,
@@ -3639,13 +3654,15 @@ async function renderHistoryList() {
       const turnsCount = session.chatHistory.filter(m => m.role === "user").length;
       const turnLabel = uiLanguage === "zh" ? `${turnsCount} 次对话` : `${turnsCount} turn(s)`;
       
-      // Format URL display
+      // Format URL & Page Title display
       let domain = "";
       try {
         domain = new URL(session.url).hostname;
       } catch (e) {
-        domain = session.url || "";
+        domain = "";
       }
+      const pageTitle = session.currentContext?.pageTitle || "";
+      const sourceLabel = domain && pageTitle ? `${domain} | ${pageTitle}` : (pageTitle || domain || session.url);
       
       // Format Date/Time
       let dateStr = "";
@@ -3664,7 +3681,7 @@ async function renderHistoryList() {
       itemEl.innerHTML = `
         <div class="history-item-title" title="${escapeHTML(session.title)}">${escapeHTML(session.title)}</div>
         <div class="history-item-meta">
-          <span class="history-item-url" title="${escapeHTML(session.url)}">${escapeHTML(domain)}</span>
+          <span class="history-item-url" title="${escapeHTML(sourceLabel)}">${escapeHTML(sourceLabel)}</span>
           <span class="history-item-date">${turnLabel} • ${dateStr}</span>
         </div>
       `;

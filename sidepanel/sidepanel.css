@@ -3173,7 +3173,6 @@ body.dark-theme .model-list-container {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: monospace;
 }
 
 .history-item-date {
