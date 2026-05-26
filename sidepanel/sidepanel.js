@@ -3583,7 +3583,19 @@ function scrollToBottom(force = false) {
 
 // --- URL-BASED CHAT HISTORY PERSISTENCE & RESTORE ---
 
-// Save the active conversation session to storage (limited to recent 10 records)
+// Helper to normalize URL for matching and grouping (stripping hashes/fragments)
+function normalizeUrlForHistory(urlStr) {
+  if (!urlStr) return "";
+  try {
+    const url = new URL(urlStr);
+    url.hash = "";
+    return url.toString();
+  } catch (e) {
+    return urlStr;
+  }
+}
+
+// Save the active conversation session to storage (limited to recent 10 records per URL)
 async function saveChatHistory(tabId) {
   if (!tabId) return;
   const state = getTabState(tabId);
@@ -3658,10 +3670,14 @@ async function saveChatHistory(tabId) {
     // Sort by timestamp descending
     histories.sort((a, b) => b.timestamp - a.timestamp);
     
-    // Limit to 10 entries
-    if (histories.length > 10) {
-      histories = histories.slice(0, 10);
-    }
+    // Limit to 10 entries per URL
+    const urlCounts = {};
+    histories = histories.filter(entry => {
+      const normUrl = normalizeUrlForHistory(entry.url);
+      if (!normUrl) return true;
+      urlCounts[normUrl] = (urlCounts[normUrl] || 0) + 1;
+      return urlCounts[normUrl] <= 10;
+    });
     
     await chrome.storage.local.set({ chatHistories: histories });
     console.log(`[ContextLens History] Saved histories successfully. Total entries: ${histories.length}`);
@@ -3717,8 +3733,34 @@ async function renderHistoryList() {
   historyList.innerHTML = "";
   
   try {
+    // Resolve current tab URL
+    let currentUrl = currentContext?.pageUrl || "";
+    if (!currentUrl && currentTabId) {
+      const state = tabStates[currentTabId];
+      currentUrl = state?.currentContext?.pageUrl || "";
+    }
+    if (!currentUrl) {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]) {
+          currentUrl = tabs[0].url || "";
+        }
+      } catch (e) {
+        console.warn("[ContextLens] Failed to query active tab in renderHistoryList:", e);
+      }
+    }
+
+    const normCurrentUrl = normalizeUrlForHistory(currentUrl);
+
     const result = await chrome.storage.local.get(["chatHistories"]);
-    const histories = result.chatHistories || [];
+    let histories = result.chatHistories || [];
+    
+    // Filter histories to only keep those matching the current normalized URL
+    if (normCurrentUrl) {
+      histories = histories.filter(h => normalizeUrlForHistory(h.url) === normCurrentUrl);
+    } else {
+      histories = [];
+    }
     
     if (histories.length === 0) {
       const emptyEl = document.createElement("div");
