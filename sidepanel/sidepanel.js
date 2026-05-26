@@ -4036,9 +4036,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       const decoder = new TextDecoder();
       let buffer = "";
 
-      if (targetTabId === currentTabId && bubbleContent) {
-        bubbleContent.innerHTML = ""; // Clear loader dots
-      }
+      // Keep loader dots in bubbleContent until the first content chunk is received and rendered
 
       while (true) {
         const { value, done } = await reader.read();
@@ -4073,7 +4071,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
                 let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                 if (!activeBubble) activeBubble = bubbleContent;
                 if (activeBubble) {
-                  renderAssistantMessage(activeBubble, streamedText, null, true, null);
+                  renderAssistantMessage(activeBubble, streamedText, null, false, null);
                 }
                 scrollToBottom();
               }
@@ -4198,9 +4196,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       reader = response.body.getReader();
       requestState.activeReader = reader;
       const decoder = new TextDecoder();
-      if (targetTabId === currentTabId && bubbleContent) {
-        bubbleContent.innerHTML = ""; // Clear loader dots
-      }
+      // Keep loader dots in bubbleContent until the first content chunk is received and rendered
 
       let buffer = "";
 
@@ -4246,7 +4242,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
                 let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                 if (!activeBubble) activeBubble = bubbleContent;
                 if (activeBubble) {
-                  renderAssistantMessage(activeBubble, streamedText, null, true, null);
+                  renderAssistantMessage(activeBubble, streamedText, null, false, null);
                 }
                 scrollToBottom();
               }
@@ -4327,9 +4323,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       reader = response.body.getReader();
       requestState.activeReader = reader;
       const decoder = new TextDecoder();
-      if (targetTabId === currentTabId && bubbleContent) {
-        bubbleContent.innerHTML = "";
-      }
+      // Keep loader dots in bubbleContent until the first content chunk is received and rendered
 
       let buffer = "";
 
@@ -4357,7 +4351,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
                   let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
                   if (!activeBubble) activeBubble = bubbleContent;
                   if (activeBubble) {
-                    renderAssistantMessage(activeBubble, streamedText, null, true, null);
+                    renderAssistantMessage(activeBubble, streamedText, null, false, null);
                   }
                   scrollToBottom();
                 }
