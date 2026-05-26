@@ -498,6 +498,32 @@ const server = http.createServer((req, res) => {
           sendText(line + '\n');
         };
 
+        // Heartbeat timer for Gemini: sends progress dots during the silent
+        // thinking phase (~4-5s) so the user sees the agent is alive.
+        let geminiHeartbeatTimer = null;
+        let geminiHeartbeatDots = 0;
+        const MAX_HEARTBEAT_DOTS = 30; // stop after 30 dots (~24s) to avoid spamming
+
+        const startGeminiHeartbeat = () => {
+          if (agentId !== 'gemini-agent' || geminiHeartbeatTimer) return;
+          geminiHeartbeatTimer = setInterval(() => {
+            if (finished || geminiHeartbeatDots >= MAX_HEARTBEAT_DOTS) {
+              clearInterval(geminiHeartbeatTimer);
+              geminiHeartbeatTimer = null;
+              return;
+            }
+            geminiHeartbeatDots++;
+            sendSystemLog('.');
+          }, 800);
+        };
+
+        const stopGeminiHeartbeat = () => {
+          if (geminiHeartbeatTimer) {
+            clearInterval(geminiHeartbeatTimer);
+            geminiHeartbeatTimer = null;
+          }
+        };
+
         const processGeminiStdoutLine = (line) => {
           const trimmed = line.trim();
           if (!trimmed) return;
@@ -506,11 +532,43 @@ const server = http.createServer((req, res) => {
             try {
               const json = JSON.parse(trimmed);
               const type = json.type || '';
+              const role = String(json.role || json.author || '').toLowerCase();
 
-              // Gemini stream-json event types
+              // Session initialized — start the heartbeat so user sees activity
+              if (type === 'init') {
+                sendSystemLog(`⚙️ [Init] Gemini CLI session: ${json.session_id || ''} (model: ${json.model || 'unknown'})\n`);
+                startGeminiHeartbeat();
+                return;
+              }
+
+              // Gemini stream-json primary streaming event:
+              // {"type":"message","role":"assistant","content":"...","delta":true}
+              if (type === 'message') {
+                if (role === 'assistant' || role === 'model') {
+                  const text = json.content || json.value || json.text || '';
+                  if (text && typeof text === 'string') {
+                    stopGeminiHeartbeat(); // first real text — cancel dots
+                    sendText(text);
+                  }
+                }
+                // user messages are echoed back — skip them
+                return;
+              }
+
+              // Completion stats
+              if (type === 'result') {
+                stopGeminiHeartbeat();
+                const stats = json.stats || {};
+                if (stats.duration_ms) {
+                  sendSystemLog(`✅ Done (${Math.round(stats.duration_ms / 100) / 10}s, ${stats.output_tokens || '?'} tokens)\n`);
+                }
+                return;
+              }
+
+              // Legacy / alternative event names
               if (type === 'content' || type === 'text') {
                 const text = json.value || json.text || json.content || '';
-                if (text) sendText(text);
+                if (text) { stopGeminiHeartbeat(); sendText(text); }
                 return;
               }
               if (type === 'tool_call' || type === 'functionCall') {
@@ -536,17 +594,17 @@ const server = http.createServer((req, res) => {
                 return;
               }
               if (type === 'error') {
+                stopGeminiHeartbeat();
                 const msg = json.message || json.value || json.content || String(json);
                 sendSystemLog(`❌ Error: ${msg}\n`);
                 return;
               }
 
-              // Generic fallback: only surface assistant/model-authored text
-              const role = String(json.role || json.author || '').toLowerCase();
+              // Generic fallback for any other assistant-role event
               const isAssistantRole = role === 'assistant' || role === 'model' || role === 'ai';
               if (isAssistantRole) {
                 const text = json.content || json.value || json.text || json.message || '';
-                if (text && typeof text === 'string') sendText(text);
+                if (text && typeof text === 'string') { stopGeminiHeartbeat(); sendText(text); }
               }
               return;
             } catch (err) {
@@ -698,6 +756,7 @@ const server = http.createServer((req, res) => {
         child.on('close', (code) => {
           if (finished) return;
           finished = true;
+          stopGeminiHeartbeat();
           
           stdoutBuffer.flush();
           stderrBuffer.flush();
@@ -716,6 +775,7 @@ const server = http.createServer((req, res) => {
         child.on('error', (err) => {
           if (finished) return;
           finished = true;
+          stopGeminiHeartbeat();
           if (attachmentContext.dirPath) {
             try {
               fs.rmSync(attachmentContext.dirPath, { recursive: true, force: true });

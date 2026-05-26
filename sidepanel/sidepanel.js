@@ -5252,6 +5252,11 @@ function applyInlineMarkdown(text) {
 // Format local agent system logs into collapsible UI elements
 function formatAgentLogs(text) {
   if (!text) return "";
+
+  // Gemini heartbeat: runs of 2+ consecutive dots are collapsed into a single
+  // animated "Thinking..." indicator to keep the log pane clean.
+  text = text.replace(/\.{2,}/g, '⏳ Thinking...');
+
   let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const markerLookahead = "(?=🔧|➡️|❌|💭|⚙️|✅|$)";
