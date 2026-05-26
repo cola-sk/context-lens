@@ -101,7 +101,8 @@ function getTabState(tabId) {
     chatHistory: [],
     includeFullPageChecked: false,
     autoScrollEnabled: true,
-    chatScrollTop: 0
+    chatScrollTop: 0,
+    sessionId: null
   };
   if (!tabStates[tabId]) {
     tabStates[tabId] = {
@@ -109,7 +110,8 @@ function getTabState(tabId) {
       chatHistory: [],
       includeFullPageChecked: false,
       autoScrollEnabled: true,
-      chatScrollTop: 0
+      chatScrollTop: 0,
+      sessionId: null
     };
   }
   if (typeof tabStates[tabId].autoScrollEnabled !== "boolean") {
@@ -404,6 +406,11 @@ const modelQuickCurrentDomain = document.getElementById("model-quick-current-dom
 const modelQuickList = document.getElementById("model-quick-list");
 const languageToggleBtn = document.getElementById("language-toggle");
 
+const historyToggle = document.getElementById("history-toggle");
+const historyPopover = document.getElementById("history-popover");
+const historyClose = document.getElementById("history-close");
+const historyList = document.getElementById("history-list");
+
 const SEND_BUTTON_ICON = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -506,6 +513,11 @@ const I18N = {
     "chat.attachment_summary": "📎 已附 {count} 张图片",
     "chat.image_only_message": "（仅发送了图片附件）",
     "chat.image_only_prompt": "请分析我上传的图片，并结合上下文回答。",
+    "chat.copy": "复制",
+    "chat.copied": "已复制!",
+    "header.history_title": "历史记录",
+    "history.title": "最近对话历史",
+    "history.empty": "暂无历史对话记录",
     "chat.need_api_key": "请配置 API 密钥...",
     "chat.need_model": "请先在设置中选择并保存一个模型...",
     "status.model_no_key": "未配置 API 密钥",
@@ -696,6 +708,11 @@ const I18N = {
     "chat.attachment_summary": "📎 {count} image(s) attached",
     "chat.image_only_message": "(Image attachment only)",
     "chat.image_only_prompt": "Please analyze the attached image(s) and respond with useful details.",
+    "chat.copy": "Copy",
+    "chat.copied": "Copied!",
+    "header.history_title": "Chat History",
+    "history.title": "Recent Chat History",
+    "history.empty": "No recent chat history",
     "chat.need_api_key": "Please configure API key...",
     "chat.need_model": "Please select and save a model in settings first...",
     "status.model_no_key": "API key not configured",
@@ -1709,6 +1726,60 @@ function loadProviderCacheToForm(provider) {
 // Setup Event Listeners
 function setupEventListeners() {
   setupAutoScrollPauseOnUserScroll();
+
+  // Delegated copy event listener for messagesList
+  if (messagesList) {
+    messagesList.addEventListener("click", (e) => {
+      const copyMsgBtn = e.target.closest(".copy-msg-btn");
+      if (copyMsgBtn) {
+        handleCopyMessage(copyMsgBtn);
+        return;
+      }
+      
+      const copyCodeBtn = e.target.closest(".code-block-copy-btn");
+      if (copyCodeBtn) {
+        handleCopyCode(copyCodeBtn);
+        return;
+      }
+    });
+  }
+
+  // Chat History Popover Toggles
+  if (historyToggle) {
+    historyToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (historyPopover) {
+        const isHidden = historyPopover.classList.contains("hidden");
+        // Close other popovers first
+        if (modelQuickPopover) modelQuickPopover.classList.add("hidden");
+        
+        if (isHidden) {
+          renderHistoryList();
+          historyPopover.classList.remove("hidden");
+        } else {
+          historyPopover.classList.add("hidden");
+        }
+      }
+    });
+  }
+
+  if (historyClose) {
+    historyClose.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (historyPopover) {
+        historyPopover.classList.add("hidden");
+      }
+    });
+  }
+
+  // Hide popovers when clicking outside
+  document.addEventListener("click", (e) => {
+    if (historyPopover && !historyPopover.classList.contains("hidden")) {
+      if (!historyPopover.contains(e.target) && e.target !== historyToggle && !historyToggle.contains(e.target)) {
+        historyPopover.classList.add("hidden");
+      }
+    }
+  });
 
   if (languageToggleBtn) {
     languageToggleBtn.addEventListener("click", async () => {
@@ -2906,10 +2977,11 @@ function rebuildUIForActiveTab() {
   // 2. Re-render Chat History
   messagesList.innerHTML = "";
   if (chatHistory && chatHistory.length > 0) {
-    chatHistory.forEach(msg => {
+    chatHistory.forEach((msg, idx) => {
       const isUser = msg.role === "user";
       const msgEl = document.createElement("div");
       msgEl.className = `message ${msg.role}`;
+      msgEl.setAttribute("data-msg-index", idx);
       const contentToDisplay = msg.displayText || msg.content;
       const isAgentMsg = !!(msg.systemLogs || msg.agentLabel);
       if (!isUser) {
@@ -2934,6 +3006,7 @@ function rebuildUIForActiveTab() {
         const bubble = msgEl.querySelector(".message-bubble");
         renderUserMessageBubble(bubble, contentToDisplay, msg.imageAttachmentCount || 0);
       }
+      appendMessageActions(msgEl, isUser);
       messagesList.appendChild(msgEl);
     });
 
@@ -3032,6 +3105,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
       }
       state.chatHistory = [];
       state.chatScrollTop = 0;
+      state.sessionId = null;
       tabPendingClipboardImages[tabId] = [];
     }
   }
@@ -3115,6 +3189,7 @@ async function handleSendMessage() {
     const state = getTabState(messageTabId);
     state.chatHistory = [...chatHistory];
     persistTabStates();
+    saveChatHistory(messageTabId);
   }
 
   // Send request to AI
@@ -3314,6 +3389,7 @@ User Question: ${text}`;
   } finally {
     setRequestRunningState(false, messageTabId);
     requestState.userAbortRequested = false;
+    saveChatHistory(messageTabId);
   }
 }
 
@@ -3363,6 +3439,9 @@ function appendMessage(role, text, options = {}) {
     msgObj.imageAttachmentCount = options.imageAttachmentCount;
   }
   chatHistory.push(msgObj);
+  
+  msgEl.setAttribute("data-msg-index", chatHistory.length - 1);
+  appendMessageActions(msgEl, isUser);
   
   // Scroll to bottom
   scrollToBottom();
@@ -3417,6 +3496,270 @@ function scrollToBottom(force = false) {
   requestAnimationFrame(() => {
     isProgrammaticChatScroll = false;
   });
+}
+
+// --- URL-BASED CHAT HISTORY PERSISTENCE & RESTORE ---
+
+// Save the active conversation session to storage (limited to recent 10 records)
+async function saveChatHistory(tabId) {
+  if (!tabId) return;
+  const state = getTabState(tabId);
+  if (!state.chatHistory || state.chatHistory.length === 0) {
+    console.log("[ContextLens History] saveChatHistory skipped: chatHistory is empty.");
+    return;
+  }
+  
+  if (!state.sessionId) {
+    state.sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  }
+  
+  let url = state.currentContext?.pageUrl || currentContext?.pageUrl || "";
+  let title = state.currentContext?.pageTitle || currentContext?.pageTitle || "";
+  
+  if (!url) {
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs[0]) {
+        url = tabs[0].url || "";
+        title = tabs[0].title || "";
+        console.log("[ContextLens History] Resolved URL dynamically from tabs.query:", url);
+      }
+    } catch (e) {
+      console.warn("[ContextLens History] Failed to query active tab inside saveChatHistory:", e);
+    }
+  }
+  
+  if (!url) {
+    console.warn("[ContextLens History] saveChatHistory aborted: URL could not be resolved.");
+    return;
+  }
+  
+  try {
+    const result = await chrome.storage.local.get(["chatHistories"]);
+    let histories = result.chatHistories || [];
+    
+    const existingIdx = histories.findIndex(h => h.id === state.sessionId);
+    const historyEntry = {
+      id: state.sessionId,
+      url: url,
+      title: title || url,
+      currentContext: state.currentContext,
+      chatHistory: state.chatHistory,
+      includeFullPageChecked: state.includeFullPageChecked,
+      timestamp: Date.now()
+    };
+    
+    if (existingIdx > -1) {
+      histories[existingIdx] = historyEntry;
+      console.log(`[ContextLens History] Updating existing session ${state.sessionId} in history.`);
+    } else {
+      histories.unshift(historyEntry);
+      console.log(`[ContextLens History] Appending new session ${state.sessionId} to history.`);
+    }
+    
+    // Sort by timestamp descending
+    histories.sort((a, b) => b.timestamp - a.timestamp);
+    
+    // Limit to 10 entries
+    if (histories.length > 10) {
+      histories = histories.slice(0, 10);
+    }
+    
+    await chrome.storage.local.set({ chatHistories: histories });
+    console.log(`[ContextLens History] Saved histories successfully. Total entries: ${histories.length}`);
+  } catch (err) {
+    console.warn("[ContextLens History] Failed to save chat history to storage:", err);
+  }
+}
+
+// Restore a chat history session into the active tab
+function restoreChatHistory(session) {
+  if (!session || !currentTabId) return;
+  
+  const state = getTabState(currentTabId);
+  state.sessionId = session.id;
+  state.currentContext = session.currentContext;
+  state.chatHistory = [...session.chatHistory];
+  state.includeFullPageChecked = !!session.includeFullPageChecked;
+  state.autoScrollEnabled = true;
+  state.chatScrollTop = 0;
+  
+  // Re-sync local global variables
+  currentContext = state.currentContext;
+  chatHistory = [...state.chatHistory];
+  includeFullPageChecked = state.includeFullPageChecked;
+  autoScrollEnabled = true;
+  
+  // Update welcome screen vs messages visibility
+  if (chatHistory.length > 0) {
+    welcomeScreen.classList.add("hidden");
+    messagesList.classList.remove("hidden");
+  } else {
+    if (currentContext) {
+      welcomeScreen.classList.add("hidden");
+      messagesList.classList.remove("hidden");
+    } else {
+      welcomeScreen.classList.remove("hidden");
+      messagesList.classList.add("hidden");
+    }
+  }
+  
+  // Rebuild the entire UI
+  rebuildUIForActiveTab();
+  
+  // Hide popover
+  if (historyPopover) {
+    historyPopover.classList.add("hidden");
+  }
+}
+
+// Render dynamic history popover list
+async function renderHistoryList() {
+  if (!historyList) return;
+  historyList.innerHTML = "";
+  
+  try {
+    const result = await chrome.storage.local.get(["chatHistories"]);
+    const histories = result.chatHistories || [];
+    
+    if (histories.length === 0) {
+      const emptyEl = document.createElement("div");
+      emptyEl.className = "history-empty";
+      emptyEl.textContent = t("history.empty");
+      historyList.appendChild(emptyEl);
+      return;
+    }
+    
+    histories.forEach(session => {
+      const itemEl = document.createElement("div");
+      itemEl.className = "history-item";
+      itemEl.setAttribute("data-session-id", session.id);
+      
+      // Calculate turns count
+      const turnsCount = session.chatHistory.filter(m => m.role === "user").length;
+      const turnLabel = uiLanguage === "zh" ? `${turnsCount} 次对话` : `${turnsCount} turn(s)`;
+      
+      // Format URL display
+      let domain = "";
+      try {
+        domain = new URL(session.url).hostname;
+      } catch (e) {
+        domain = session.url || "";
+      }
+      
+      // Format Date/Time
+      let dateStr = "";
+      try {
+        const d = new Date(session.timestamp);
+        dateStr = d.toLocaleDateString(uiLanguage === "zh" ? "zh-CN" : "en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+      } catch (e) {
+        dateStr = "";
+      }
+      
+      itemEl.innerHTML = `
+        <div class="history-item-title" title="${escapeHTML(session.title)}">${escapeHTML(session.title)}</div>
+        <div class="history-item-meta">
+          <span class="history-item-url" title="${escapeHTML(session.url)}">${escapeHTML(domain)}</span>
+          <span class="history-item-date">${turnLabel} • ${dateStr}</span>
+        </div>
+      `;
+      
+      itemEl.addEventListener("click", () => {
+        restoreChatHistory(session);
+      });
+      
+      historyList.appendChild(itemEl);
+    });
+  } catch (err) {
+    console.warn("[ContextLens] Failed to render chat histories:", err);
+  }
+}
+
+// --- COPY FUNCTIONALITY & MESSAGE ACTIONS ---
+
+// Append copy/action bar under message bubbles
+function appendMessageActions(msgEl, isUser) {
+  if (!msgEl || msgEl.querySelector(".message-actions")) return;
+  
+  const actionsEl = document.createElement("div");
+  actionsEl.className = "message-actions";
+  
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "message-action-btn copy-msg-btn";
+  copyBtn.type = "button";
+  copyBtn.title = t("chat.copy");
+  copyBtn.setAttribute("aria-label", t("chat.copy"));
+  
+  copyBtn.innerHTML = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+    <span class="action-btn-text" style="margin-left: 4px; font-size: 10px; font-weight: 500;">${t("chat.copy")}</span>
+  `;
+  
+  actionsEl.appendChild(copyBtn);
+  msgEl.appendChild(actionsEl);
+}
+
+// Copy message content
+function handleCopyMessage(btn) {
+  const msgEl = btn.closest(".message");
+  if (!msgEl) return;
+  const idx = parseInt(msgEl.getAttribute("data-msg-index"));
+  if (isNaN(idx) || !chatHistory[idx]) return;
+  
+  const msg = chatHistory[idx];
+  let textToCopy = msg.content;
+  
+  // For agent responses, extract the actual result
+  if (msg.role === "assistant" && (msg.systemLogs || msg.agentLabel)) {
+    const { actualAnswer } = splitAgentOutput(msg.content, msg.isAgentComplete !== false);
+    textToCopy = actualAnswer || msg.content;
+  }
+  
+  navigator.clipboard.writeText(textToCopy).then(() => {
+    showCopyFeedback(btn);
+  }).catch(err => {
+    console.error("Failed to copy message:", err);
+  });
+}
+
+// Copy code block
+function handleCopyCode(btn) {
+  const wrapper = btn.closest(".code-block-wrapper");
+  if (!wrapper) return;
+  const codeEl = wrapper.querySelector("pre code");
+  if (!codeEl) return;
+  
+  navigator.clipboard.writeText(codeEl.textContent).then(() => {
+    showCopyFeedback(btn, true);
+  }).catch(err => {
+    console.error("Failed to copy code block:", err);
+  });
+}
+
+// Visual success feedback
+function showCopyFeedback(btn, isCodeBlock = false) {
+  const originalHTML = btn.innerHTML;
+  btn.classList.add("copied");
+  
+  btn.innerHTML = `
+    <svg width="${isCodeBlock ? '12' : '13'}" height="${isCodeBlock ? '12' : '13'}" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+    <span class="action-btn-text" style="margin-left: 4px; color: #10b981; font-weight: 600;">${t("chat.copied")}</span>
+  `;
+  
+  setTimeout(() => {
+    btn.classList.remove("copied");
+    btn.innerHTML = originalHTML;
+  }, 2000);
 }
 
 // Unified Streaming Handler
@@ -3476,6 +3819,8 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
   targetState.chatHistory.push(assistantMsgObj);
   if (targetTabId === currentTabId) {
     chatHistory = [...targetState.chatHistory];
+    assistantBubble.setAttribute("data-msg-index", chatHistory.length - 1);
+    appendMessageActions(assistantBubble, false);
   }
   const scheduleStreamStatePersist = () => {
     if (targetTabId === currentTabId) {
@@ -4469,7 +4814,21 @@ function formatMarkdown(text) {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, "") || "text";
-    codeBlocks.push(`<pre><code class="language-${languageClass}">${escaped}</code></pre>`);
+    codeBlocks.push(`
+<div class="code-block-wrapper">
+  <div class="code-block-header">
+    <span class="code-block-lang">${languageClass}</span>
+    <button class="code-block-copy-btn" type="button">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+      <span class="code-copy-text" style="margin-left: 4px; font-weight: 500;">${t("chat.copy")}</span>
+    </button>
+  </div>
+  <pre><code class="language-${languageClass}">${escaped}</code></pre>
+</div>
+    `.trim());
     return CODE_PH(idx);
   });
 

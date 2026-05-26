@@ -17,6 +17,12 @@
         <button id="language-toggle" class="lang-toggle-btn" type="button" title="Switch Language">
           中文 / EN
         </button>
+        <button id="history-toggle" class="header-btn" title="历史记录" data-i18n-title="header.history_title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
         <button id="settings-toggle" class="header-btn" title="AI 服务设置" data-i18n-title="header.settings_title">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -25,6 +31,17 @@
         </button>
       </div>
     </header>
+
+    <!-- Chat History Popover -->
+    <div id="history-popover" class="history-popover hidden">
+      <div class="history-header">
+        <span class="history-title" data-i18n-text="history.title">最近对话</span>
+        <button id="history-close" type="button" class="history-close">&times;</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
 
     <!-- Main Content Panel -->
     <main class="chat-container">
