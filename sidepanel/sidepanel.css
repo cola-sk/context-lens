@@ -1275,7 +1275,9 @@ body.dark-theme {
   color: var(--text-secondary);
   background: rgba(0, 0, 0, 0.02);
   border: 1px solid var(--border-light);
-  padding: 4px 10px;
+  padding: 0 10px;
+  height: 22px;
+  box-sizing: border-box;
   border-radius: 9999px;
   align-self: flex-start;
   max-width: 100%;
@@ -1322,7 +1324,10 @@ body.dark-theme {
 
 .workspace-icon {
   margin-right: 2px;
-  font-size: 11px;
+  font-size: 10px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
 }
 
 .pulse-indicator {
