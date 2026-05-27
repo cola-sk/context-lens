@@ -23,6 +23,9 @@ let appSettings = {
 // Active Model ID (references an item in configuredApiModels or a detected local agent id)
 let activeModelId = null;
 
+// Pinned model IDs in context menu (max 5)
+let contextMenuModelIds = [];
+
 // User-configured API models (saved to chrome.storage.local under "configuredApiModels")
 // Each entry: { id, provider, label, model, apiKey, apiUrl, bridgeUrl }
 let configuredApiModels = [];
@@ -427,6 +430,9 @@ const STOP_BUTTON_ICON = `<span class="stop-square-icon" aria-hidden="true"></sp
 
 const I18N = {
   zh: {
+    "model.pin_title": "置顶到右键菜单（最多5个）",
+    "model.unpin_title": "从右键菜单取消置顶",
+    "settings.context_menu_limit": "最多只能置顶5个模型到右键菜单",
     "header.settings_title": "AI 服务设置",
     "header.lang_button": "中文 / EN",
     "header.switch_to_en": "Switch to English",
@@ -625,6 +631,9 @@ const I18N = {
     "context.page_only_loaded": "💡 已导入当前网页上下文（标题及地址）"
   },
   en: {
+    "model.pin_title": "Pin to right-click menu (max 5)",
+    "model.unpin_title": "Unpin from right-click menu",
+    "settings.context_menu_limit": "You can pin up to 5 models to the right-click menu",
     "header.settings_title": "AI Service Settings",
     "header.lang_button": "ZH / English",
     "header.switch_to_en": "Switch to English",
@@ -1071,7 +1080,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Load settings from chrome.storage.local
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "tabStates", "uiLanguage"]);
+  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "tabStates", "uiLanguage", "contextMenuModelIds"]);
   
   tabStates = result.tabStates || {};
   uiLanguage = result.uiLanguage === "en" ? "en" : "zh";
@@ -1162,6 +1171,9 @@ async function loadSettings() {
 
   // Load activeModelId
   activeModelId = result.activeModelId || null;
+
+  // Load contextMenuModelIds
+  contextMenuModelIds = result.contextMenuModelIds || [];
 
   // Load urlSwitchRules
   urlSwitchRules = result.urlSwitchRules || [];
@@ -1658,6 +1670,13 @@ function renderAvailableModelCards() {
       </div>
       <div class="model-card-side">
         ${card.id === activeModelId ? '<div class="model-card-active-indicator"></div>' : ""}
+        ${!card.disabled ? `
+          <button class="model-card-pin${contextMenuModelIds.includes(card.id) ? " pinned" : ""}" title="${contextMenuModelIds.includes(card.id) ? t("model.unpin_title") : t("model.pin_title")}" data-pin-id="${card.id}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.89A.5.5 0 0 0 6.33 14h11.34a.5.5 0 0 0 .22-.56l-1.78-.89a2 2 0 0 1-1.11-1.79V4H9v6.76zM8 4h8"></path>
+            </svg>
+          </button>
+        ` : ""}
         ${card.deletable ? `
           <button class="model-card-edit" title="${t("model.edit_title")}" data-edit-id="${card.id}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1679,6 +1698,7 @@ function renderAvailableModelCards() {
       el.addEventListener("click", async (e) => {
         if (e.target.closest(".model-card-delete")) return;
         if (e.target.closest(".model-card-edit")) return;
+        if (e.target.closest(".model-card-pin")) return;
         // Activate this model
         activeModelId = card.id;
         
@@ -1690,6 +1710,29 @@ function renderAvailableModelCards() {
       });
     } else {
       el.title = t("model.need_cli");
+    }
+
+    // Pin click listener
+    const pinBtn = el.querySelector(".model-card-pin");
+    if (pinBtn) {
+      pinBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const pinId = pinBtn.dataset.pinId;
+        const isPinned = contextMenuModelIds.includes(pinId);
+        if (isPinned) {
+          contextMenuModelIds = contextMenuModelIds.filter(id => id !== pinId);
+          await chrome.storage.local.set({ contextMenuModelIds });
+          renderAvailableModelCards();
+        } else {
+          if (contextMenuModelIds.length >= 5) {
+            alert(t("settings.context_menu_limit"));
+          } else {
+            contextMenuModelIds.push(pinId);
+            await chrome.storage.local.set({ contextMenuModelIds });
+            renderAvailableModelCards();
+          }
+        }
+      });
     }
 
     // Edit handler for configured API models
@@ -3211,6 +3254,18 @@ async function handleNewSelection(selection, isNewInteraction = false) {
   saveActiveTabState();
 
   const state = getTabState(tabId);
+
+  if (selection.temporaryModelOverride !== undefined) {
+    if (selection.temporaryModelOverride === "") {
+      delete tabTemporaryModelOverrides[tabId];
+    } else {
+      tabTemporaryModelOverrides[tabId] = {
+        modelId: selection.temporaryModelOverride,
+        updatedAt: Date.now()
+      };
+    }
+  }
+
   if (selection.text || selection.contextData) {
     const previousContext = state.currentContext;
     const isSameSelection = isSameSelectionSnapshot(previousContext, selection);
@@ -3224,7 +3279,8 @@ async function handleNewSelection(selection, isNewInteraction = false) {
 
     // A new user-triggered selection (Lens button or right-click) resets the
     // chat for this tab so the conversation starts fresh with the new context.
-    if (isNewInteraction && !isSameSelection) {
+    const shouldResetChat = (isNewInteraction && !isSameSelection) || (isNewInteraction && selection.temporaryModelOverride !== undefined);
+    if (shouldResetChat) {
       // Cancel any in-progress stream
       if (tabId === currentTabId && hasPendingRequestForTab(tabId)) {
         await handleStopStreamingRequest(tabId);
@@ -3238,6 +3294,15 @@ async function handleNewSelection(selection, isNewInteraction = false) {
 
   if (tabId === currentTabId) {
     restoreActiveTabState(currentTabId);
+    
+    // Sync settings for current active tab immediately to apply overrides
+    try {
+      const tab = await chrome.tabs.get(currentTabId);
+      await applyUrlSwitchingForTab(tab);
+    } catch (e) {
+      applyTemporaryModelOverrideForTab(currentTabId);
+    }
+
     rebuildUIForActiveTab();
     saveActiveTabState();
   } else {

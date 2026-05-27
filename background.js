@@ -7,6 +7,93 @@ const SIDE_PANEL_PATH = "sidepanel/sidepanel.html";
 // Cache of the latest right-clicked context per tab
 let tabRightClickContexts = {};
 
+const LOCAL_AGENT_LABELS = {
+  zh: {
+    "claude-agent": "Claude Code 本地 Agent",
+    "codex-agent": "Codex CLI 本地 Agent",
+    "gemini-agent": "Gemini CLI 本地 Agent"
+  },
+  en: {
+    "claude-agent": "Claude Code Local Agent",
+    "codex-agent": "Codex CLI Local Agent",
+    "gemini-agent": "Gemini CLI Local Agent"
+  }
+};
+
+const DEFAULT_MODEL_LABELS = {
+  zh: "默认模型",
+  en: "Default Model"
+};
+
+async function rebuildContextMenus() {
+  try {
+    await chrome.contextMenus.removeAll();
+  } catch (err) {
+    console.warn("🔮 [ContextLens Background] Failed to clear context menus:", err);
+  }
+
+  const result = await chrome.storage.local.get(["contextMenuModelIds", "configuredApiModels", "uiLanguage"]);
+  const contextMenuModelIds = result.contextMenuModelIds || [];
+  const configuredApiModels = result.configuredApiModels || [];
+  const uiLang = result.uiLanguage === "en" ? "en" : "zh";
+
+  if (contextMenuModelIds.length === 0) {
+    chrome.contextMenus.create({
+      id: "ask-contextlens",
+      title: "Ask ContextLens",
+      contexts: ["all"]
+    });
+    console.log("🔮 [ContextLens Background] Registered single top-level context menu.");
+    return;
+  }
+
+  chrome.contextMenus.create({
+    id: "ask-contextlens-parent",
+    title: "Ask ContextLens",
+    contexts: ["all"]
+  });
+
+  const defaultLabel = DEFAULT_MODEL_LABELS[uiLang] || "Default Model";
+  chrome.contextMenus.create({
+    id: "ask-contextlens-default",
+    parentId: "ask-contextlens-parent",
+    title: defaultLabel,
+    contexts: ["all"]
+  });
+
+  for (const modelId of contextMenuModelIds) {
+    let label = modelId;
+    const localLabels = LOCAL_AGENT_LABELS[uiLang] || LOCAL_AGENT_LABELS.zh;
+    if (localLabels[modelId]) {
+      label = localLabels[modelId];
+    } else {
+      const apiModel = configuredApiModels.find(m => m.id === modelId);
+      if (apiModel) {
+        label = apiModel.label || apiModel.provider || modelId;
+      }
+    }
+
+    chrome.contextMenus.create({
+      id: `ask-contextlens-model-${modelId}`,
+      parentId: "ask-contextlens-parent",
+      title: label,
+      contexts: ["all"]
+    });
+  }
+
+  console.log(`🔮 [ContextLens Background] Registered context menu tree with ${contextMenuModelIds.length} pinned models.`);
+}
+
+// Initialize context menus at startup
+rebuildContextMenus();
+
+// Rebuild context menus on storage changes
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && (changes.contextMenuModelIds || changes.configuredApiModels || changes.uiLanguage)) {
+    rebuildContextMenus();
+  }
+});
+
 function enableSidePanelForTab(tabId, { silent = false } = {}) {
   if (!tabId) return Promise.resolve();
   activeSidePanelTabs.add(tabId);
@@ -74,11 +161,7 @@ chrome.sidePanel.setOptions({
 
 // Create Context Menu on install and disable side panel globally by default
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: "ask-contextlens",
-    title: "Ask ContextLens",
-    contexts: ["all"]
-  });
+  rebuildContextMenus();
 
   // Disable side panel globally by default
   chrome.sidePanel.setOptions({
@@ -110,7 +193,11 @@ chrome.action.onClicked.addListener((tab) => {
 
 // Handle Context Menu clicks
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "ask-contextlens") {
+  const isTargetMenu = info.menuItemId === "ask-contextlens" || 
+                       info.menuItemId === "ask-contextlens-default" || 
+                       info.menuItemId.startsWith("ask-contextlens-model-");
+                       
+  if (isTargetMenu) {
     enableSidePanelForTab(tab.id);
 
     // 1. Open the side panel synchronously for the active tab (preserves gesture)
@@ -126,6 +213,13 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       timestamp: Date.now(),
       contextData: null
     };
+
+    if (info.menuItemId.startsWith("ask-contextlens-model-")) {
+      const modelId = info.menuItemId.replace("ask-contextlens-model-", "");
+      selectionPayload.temporaryModelOverride = modelId;
+    } else if (info.menuItemId === "ask-contextlens-default") {
+      selectionPayload.temporaryModelOverride = "";
+    }
 
     // 2. Query cache first, and fall back to content script message querying if cache is missing or stale
     (async () => {

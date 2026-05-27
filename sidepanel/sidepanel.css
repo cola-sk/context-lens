@@ -2746,6 +2746,35 @@ body.dark-theme .model-list-container {
   background: rgba(99, 102, 241, 0.12);
 }
 
+.model-card-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  opacity: 0;
+}
+
+.model-card:hover .model-card-pin {
+  opacity: 1;
+}
+
+.model-card-pin.pinned {
+  opacity: 1;
+  color: var(--accent-indigo);
+}
+
+.model-card-pin:hover {
+  color: var(--accent-indigo);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+
 .model-card-active-indicator {
   width: 7px;
   height: 7px;
