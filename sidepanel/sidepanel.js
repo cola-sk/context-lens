@@ -2955,6 +2955,7 @@ function updateStatusUI() {
 // Rebuild the complete UI for the active tab
 function rebuildUIForActiveTab() {
   const includeFullPageToggle = document.getElementById("include-full-page-context");
+  const requestState = getTabRequestState(currentTabId);
 
   // 1. Re-render Context Banner
   if (currentContext) {
