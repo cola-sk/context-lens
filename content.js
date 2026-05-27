@@ -7,6 +7,10 @@ let lastRightClickElement = null;
 let lastRightClickContext = null; // Caches rich DOM context on right click
 let cachedUiLanguage = null;
 
+function isContextValid() {
+  return typeof chrome !== "undefined" && typeof chrome.runtime !== "undefined" && typeof chrome.runtime.id !== "undefined";
+}
+
 console.log("🔮 [ContextLens] Content script loaded successfully! Ready to capture text selections with DOM context.");
 
 function getNavigatorFallbackLanguage() {
@@ -424,7 +428,12 @@ function createFloatingButton() {
 
 // Handle selection end
 function handleMouseUp(e) {
+  if (!isContextValid()) {
+    document.removeEventListener("mouseup", handleMouseUp);
+    return;
+  }
   setTimeout(() => {
+    if (!isContextValid()) return;
     const selection = window.getSelection();
     if (!selection) return;
 
@@ -626,6 +635,12 @@ async function handleButtonClick(e) {
   e.preventDefault();
   e.stopPropagation();
 
+  if (!isContextValid()) {
+    console.warn("🔮 [ContextLens] Extension context was invalidated (extension reloaded/updated). Guiding user to refresh.");
+    void showInvalidatedToast();
+    return;
+  }
+
   if (!currentSelectionText) return;
 
   console.log(`🔮 [ContextLens] Lens button clicked! Sending selection context...`);
@@ -645,7 +660,7 @@ async function handleButtonClick(e) {
       console.error("❌ [ContextLens] Background rejected side panel open:", response?.error);
     }
   } catch (err) {
-    if (err.message && err.message.includes("context invalidated")) {
+    if (err.message && (err.message.includes("context invalidated") || err.message.includes("sendMessage"))) {
       console.warn("🔮 [ContextLens] Extension context was invalidated (extension reloaded/updated). Guiding user to refresh.");
       void showInvalidatedToast();
     } else {
@@ -744,22 +759,37 @@ async function showInvalidatedToast() {
 
 document.addEventListener("mouseup", handleMouseUp);
 
-document.addEventListener("keydown", (e) => {
+function handleKeyDown(e) {
+  if (!isContextValid()) {
+    document.removeEventListener("keydown", handleKeyDown);
+    return;
+  }
   if (e.key === "Escape") {
     hideButton();
   }
-});
+}
+document.addEventListener("keydown", handleKeyDown);
 
-window.addEventListener("scroll", () => {
+function handleScroll() {
+  if (!isContextValid()) {
+    window.removeEventListener("scroll", handleScroll);
+    return;
+  }
   if (floatBtn && !floatBtn.classList.contains("contextlens-hidden")) {
     hideButton();
   }
-}, { passive: true });
+}
+window.addEventListener("scroll", handleScroll, { passive: true });
 
-document.addEventListener("mousedown", (e) => {
+function handleMouseDown(e) {
+  if (!isContextValid()) {
+    document.removeEventListener("mousedown", handleMouseDown);
+    return;
+  }
   if (floatBtn && !floatBtn.classList.contains("contextlens-hidden")) {
     if (!e.target.closest("#contextlens-floating-btn")) {
       setTimeout(() => {
+        if (!isContextValid()) return;
         const selection = window.getSelection();
         if (selection.toString().trim().length === 0) {
           hideButton();
@@ -767,7 +797,8 @@ document.addEventListener("mousedown", (e) => {
       }, 50);
     }
   }
-});
+}
+document.addEventListener("mousedown", handleMouseDown);
 
 // --- MESSAGING CHANNEL FOR RIGHT-CLICK MENU SUPPORT ---
 
@@ -837,7 +868,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Track the right-clicked element and compile its context (Capturing phase avoids event bubbling blockers)
-document.addEventListener("contextmenu", (e) => {
+function handleContextMenu(e) {
+  if (!isContextValid()) {
+    document.removeEventListener("contextmenu", handleContextMenu, true);
+    return;
+  }
+
   lastRightClickElement = e.target;
   lastRightClickContext = compileElementContext(e.target);
 
@@ -875,4 +911,5 @@ document.addEventListener("contextmenu", (e) => {
   }).catch((err) => {
     // Ignore message sending errors (e.g. extension reloaded)
   });
-}, true);
+}
+document.addEventListener("contextmenu", handleContextMenu, true);
