@@ -41,6 +41,7 @@ let defaultSettingsBackup = null;
 let currentContext = null; // { text, pageUrl, pageTitle }
 let chatHistory = []; // Unified messages history [{ role: 'user'|'assistant', content }]
 let includeFullPageChecked = false; // cached checkbox state for active tab
+let includeSelectionImagesChecked = true; // cached selection images checkbox state for active tab
 let uiLanguage = "zh"; // "zh" | "en"
 let customModels = []; // Legacy cache (kept for backward compat with rules)
 let addedProviderModels = {
@@ -100,6 +101,7 @@ function getTabState(tabId) {
     currentContext: null,
     chatHistory: [],
     includeFullPageChecked: false,
+    includeSelectionImagesChecked: true,
     autoScrollEnabled: true,
     chatScrollTop: 0,
     sessionId: null
@@ -109,6 +111,7 @@ function getTabState(tabId) {
       currentContext: null,
       chatHistory: [],
       includeFullPageChecked: false,
+      includeSelectionImagesChecked: true,
       autoScrollEnabled: true,
       chatScrollTop: 0,
       sessionId: null
@@ -152,6 +155,7 @@ function saveActiveTabState() {
     state.currentContext = currentContext;
     state.chatHistory = [...chatHistory];
     state.includeFullPageChecked = includeFullPageChecked;
+    state.includeSelectionImagesChecked = includeSelectionImagesChecked;
     state.autoScrollEnabled = autoScrollEnabled;
     if (chatContainer) {
       state.chatScrollTop = Math.max(0, chatContainer.scrollTop || 0);
@@ -168,6 +172,7 @@ function restoreActiveTabState(tabId) {
   currentContext = state.currentContext;
   chatHistory = [...state.chatHistory];
   includeFullPageChecked = state.includeFullPageChecked;
+  includeSelectionImagesChecked = state.includeSelectionImagesChecked !== false;
   autoScrollEnabled = state.autoScrollEnabled !== false;
   closeChatImagePreview();
   renderPendingClipboardAttachments();
@@ -437,6 +442,7 @@ const I18N = {
     "context.clear_btn": "清除",
     "context.insights_badge": "上下文视窗",
     "context.full_page_label": "💡 附加完整文章上下文",
+    "context.include_images_label": "💡 本地解析并附带选中图片",
     "settings.drawer_title": "AI 服务端配置",
     "settings.tab_general": "基本配置",
     "settings.tab_rules": "自动切换规则",
@@ -634,6 +640,7 @@ const I18N = {
     "context.clear_btn": "Clear",
     "context.insights_badge": "Context View",
     "context.full_page_label": "💡 Attach full article context",
+    "context.include_images_label": "💡 Locally parse & attach selected images",
     "settings.drawer_title": "AI Service Configuration",
     "settings.tab_general": "General",
     "settings.tab_rules": "Auto Rules",
@@ -1836,6 +1843,7 @@ function setupEventListeners() {
       state.chatScrollTop = 0;
       state.sessionId = null;
       state.includeFullPageChecked = false;
+      state.includeSelectionImagesChecked = true;
       tabPendingClipboardImages[currentTabId] = [];
       state.currentContext = {
         text: "",
@@ -1847,6 +1855,7 @@ function setupEventListeners() {
       currentContext = state.currentContext;
       chatHistory = [];
       includeFullPageChecked = false;
+      includeSelectionImagesChecked = true;
       autoScrollEnabled = true;
       
       rebuildUIForActiveTab();
@@ -2252,14 +2261,28 @@ function setupEventListeners() {
     });
   }
 
+  const includeSelectionImagesToggle = document.getElementById("include-selection-images");
+  if (includeSelectionImagesToggle) {
+    includeSelectionImagesToggle.addEventListener("change", () => {
+      includeSelectionImagesChecked = includeSelectionImagesToggle.checked;
+      if (currentTabId) {
+        const state = getTabState(currentTabId);
+        state.includeSelectionImagesChecked = includeSelectionImagesChecked;
+      }
+      saveActiveTabState();
+    });
+  }
+
   // Clear current context banner
   clearContextBtn.addEventListener("click", async () => {
     currentContext = null;
     includeFullPageChecked = false;
+    includeSelectionImagesChecked = true;
     if (currentTabId) {
       const state = getTabState(currentTabId);
       state.currentContext = null;
       state.includeFullPageChecked = false;
+      state.includeSelectionImagesChecked = true;
     }
 
     contextBanner.classList.add("hidden");
@@ -2269,6 +2292,12 @@ function setupEventListeners() {
     const includeFullPageToggle = document.getElementById("include-full-page-context");
     if (includeFullPageToggle) {
       includeFullPageToggle.checked = false;
+    }
+
+    // Reset selection images checkbox
+    const includeSelectionImagesToggle = document.getElementById("include-selection-images");
+    if (includeSelectionImagesToggle) {
+      includeSelectionImagesToggle.checked = true;
     }
 
     // If chat history is empty, show welcome screen again
@@ -3019,7 +3048,7 @@ function rebuildUIForActiveTab() {
     }
 
     // Handle Full Page Context checkbox visibility
-    const includeFullPageContainer = document.querySelector(".full-page-toggle-container");
+    const includeFullPageContainer = document.getElementById("full-page-toggle-container");
     if (includeFullPageContainer && includeFullPageToggle) {
       if (currentContext.contextData && currentContext.contextData.fullPageSimplifiedText) {
         includeFullPageContainer.classList.remove("hidden");
@@ -3031,10 +3060,25 @@ function rebuildUIForActiveTab() {
       }
     }
 
+    // Handle Selection Images checkbox visibility
+    const includeSelectionImagesContainer = document.getElementById("selection-images-toggle-container");
+    const includeSelectionImagesToggle = document.getElementById("include-selection-images");
+    if (includeSelectionImagesContainer && includeSelectionImagesToggle) {
+      const contextImages = getContextImages(currentContext.contextData, 5);
+      if (contextImages && contextImages.length > 0) {
+        includeSelectionImagesContainer.classList.remove("hidden");
+        includeSelectionImagesToggle.checked = includeSelectionImagesChecked;
+      } else {
+        includeSelectionImagesContainer.classList.add("hidden");
+        includeSelectionImagesToggle.checked = false;
+        includeSelectionImagesChecked = false;
+      }
+    }
+
     contextBanner.classList.remove("hidden");
   } else {
     contextBanner.classList.add("hidden");
-    const includeFullPageContainer = document.querySelector(".full-page-toggle-container");
+    const includeFullPageContainer = document.getElementById("full-page-toggle-container");
     if (includeFullPageContainer) {
       includeFullPageContainer.classList.add("hidden");
     }
@@ -3042,6 +3086,16 @@ function rebuildUIForActiveTab() {
       includeFullPageToggle.checked = false;
     }
     includeFullPageChecked = false;
+
+    const includeSelectionImagesContainer = document.getElementById("selection-images-toggle-container");
+    if (includeSelectionImagesContainer) {
+      includeSelectionImagesContainer.classList.add("hidden");
+    }
+    const includeSelectionImagesToggle = document.getElementById("include-selection-images");
+    if (includeSelectionImagesToggle) {
+      includeSelectionImagesToggle.checked = false;
+    }
+    includeSelectionImagesChecked = false;
   }
 
   // 2. Re-render Chat History
@@ -3162,6 +3216,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
     const isSameSelection = isSameSelectionSnapshot(previousContext, selection);
     state.currentContext = selection;
     state.includeFullPageChecked = false; // Reset to unchecked for safety
+    state.includeSelectionImagesChecked = true; // Reset to checked by default for new context
     if (!isSameSelection) {
       state.autoScrollEnabled = true;
       state.chatScrollTop = 0;
@@ -3287,7 +3342,7 @@ async function handleSendMessage() {
   if (currentContext && chatHistory.length === 1) {
     const cd = currentContext.contextData;
     if (cd) {
-      const contextImages = getContextImages(cd, 5);
+      const contextImages = includeSelectionImagesChecked ? getContextImages(cd, 5) : [];
       if (appSettings.apiProvider.endsWith("-agent") && effectiveCwd) {
         // Agent mode: only for local/dev pages with workspace configured
         const workspaceHeader = `You are a local agentic coding assistant running directly in the user's project workspace folder: ${effectiveCwd}.`;
@@ -3595,6 +3650,105 @@ function normalizeUrlForHistory(urlStr) {
   }
 }
 
+// Compile a clean history without any failed turns, maintaining strict role alternation
+function getFilteredChatHistory(history) {
+  const filtered = [];
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    if (msg.role === "assistant" && msg.isError) {
+      if (filtered.length > 0 && filtered[filtered.length - 1].role === "user") {
+        filtered.pop();
+      }
+      continue;
+    }
+    filtered.push(msg);
+  }
+  return filtered;
+}
+
+// Fetch image and convert to compressed JPEG data URL client-side
+async function fetchAndBase64Image(imageUrl) {
+  try {
+    const res = await fetch(imageUrl);
+    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+    const blob = await res.blob();
+    
+    // Compress and resize the blob using HTML5 Canvas to keep it lightweight (max 1280px, quality 0.8)
+    const dataUrl = await compressAndResizeImage(blob);
+    return dataUrl;
+  } catch (e) {
+    console.warn(`[ContextLens] Failed to pull image client-side from ${imageUrl}:`, e);
+    return null;
+  }
+}
+
+// Compress and resize image blob/file
+function compressAndResizeImage(blob, maxDimension = 1280, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(compressedDataUrl);
+      };
+      img.onerror = () => reject(new Error("Failed to load image for resizing"));
+      img.src = String(e.target.result || "");
+    };
+    reader.onerror = () => reject(reader.error || new Error("Failed to read image blob"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Compile and resolve selection context images for request payload based on local-pull checkbox
+async function resolveContextImagesForPayload(images, shouldPull) {
+  if (!images || images.length === 0) return [];
+  if (!shouldPull) {
+    // If not checked, return the original images (which just have raw img.src link)
+    return images;
+  }
+
+  const resolved = [];
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    try {
+      const dataUrl = await fetchAndBase64Image(img.src);
+      if (dataUrl) {
+        resolved.push({
+          ...img,
+          src: dataUrl // Replace original external src with the base64 dataUrl!
+        });
+      } else {
+        // Fallback to original src if pulling fails
+        resolved.push(img);
+      }
+    } catch (e) {
+      resolved.push(img);
+    }
+  }
+  return resolved;
+}
+
 // Save the active conversation session to storage (limited to recent 10 records per URL)
 async function saveChatHistory(tabId) {
   if (!tabId) return;
@@ -3656,6 +3810,7 @@ async function saveChatHistory(tabId) {
       currentContext: state.currentContext,
       chatHistory: state.chatHistory,
       includeFullPageChecked: state.includeFullPageChecked,
+      includeSelectionImagesChecked: state.includeSelectionImagesChecked,
       timestamp: Date.now()
     };
     
@@ -3695,6 +3850,7 @@ function restoreChatHistory(session) {
   state.currentContext = session.currentContext;
   state.chatHistory = [...session.chatHistory];
   state.includeFullPageChecked = !!session.includeFullPageChecked;
+  state.includeSelectionImagesChecked = session.includeSelectionImagesChecked !== false;
   state.autoScrollEnabled = true;
   state.chatScrollTop = 0;
   
@@ -3702,6 +3858,7 @@ function restoreChatHistory(session) {
   currentContext = state.currentContext;
   chatHistory = [...state.chatHistory];
   includeFullPageChecked = state.includeFullPageChecked;
+  includeSelectionImagesChecked = state.includeSelectionImagesChecked;
   autoScrollEnabled = true;
   
   // Update welcome screen vs messages visibility
@@ -3985,8 +4142,10 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
   scheduleStreamStatePersist();
 
   try {
+    const cleanHistory = getFilteredChatHistory(chatHistory.slice(0, -1));
     const { apiProvider, apiKey, apiUrl, modelName, temperature } = appSettings;
-    const contextImages = getContextImages(currentContext?.contextData, 5);
+    const rawContextImages = getContextImages(currentContext?.contextData, 5);
+    const contextImages = await resolveContextImagesForPayload(rawContextImages, includeSelectionImagesChecked);
     const canUseStructuredImages = supportsStructuredImageInput(apiProvider, modelName);
     const canUseClipboardImages = supportsClipboardImages(apiProvider, modelName);
     const clipboardImageAttachments = canUseClipboardImages
@@ -4018,9 +4177,10 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       // Add history (Gemini format: role 'user' or 'model')
       // Retrieve the first user message (which now has full context if updated)
-      const firstMsgContent = chatHistory[0]?.content || promptText;
+      const firstMsg = cleanHistory[0];
+      const firstMsgContent = firstMsg?.content || promptText;
       const firstMsgParts = [{ text: `${geminiSystem}\n\nUser starts the session with:\n${firstMsgContent}` }];
-      const shouldEmbedFirstMsgClipboardImages = clipboardImageAttachments.length > 0 && (chatHistory.length - 2) === 0;
+      const shouldEmbedFirstMsgClipboardImages = clipboardImageAttachments.length > 0 && cleanHistory.length === 1;
       if (shouldEmbedFirstMsgClipboardImages) {
         clipboardImageAttachments.forEach(att => {
           firstMsgParts.push({
@@ -4037,11 +4197,11 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       });
 
       // Append follow-up chat history (excluding the final assistant streaming bubble)
-      for (let i = 1; i < chatHistory.length - 1; i++) {
-        const msg = chatHistory[i];
+      for (let i = 1; i < cleanHistory.length; i++) {
+        const msg = cleanHistory[i];
         const parts = [{ text: msg.content }];
         const shouldEmbedCurrentClipboardImages = clipboardImageAttachments.length > 0
-          && i === (chatHistory.length - 2)
+          && i === (cleanHistory.length - 1)
           && msg.role === "user";
         if (shouldEmbedCurrentClipboardImages) {
           clipboardImageAttachments.forEach(att => {
@@ -4182,15 +4342,15 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Compile chat history messages
       const messages = [{ role: "system", content: systemContent }];
 
-      // Add existing chat logs (excluding the final assistant streaming bubble)
-      for (let i = 0; i < chatHistory.length - 1; i++) {
-        const msg = chatHistory[i];
+      // Add existing chat logs (using cleanHistory)
+      for (let i = 0; i < cleanHistory.length; i++) {
+        const msg = cleanHistory[i];
         const shouldEmbedContextImages = i === 0
           && msg.role === "user"
           && msg._contextEmbedded
           && canUseStructuredImages
           && contextImages.length > 0;
-        const shouldEmbedClipboardImages = i === (chatHistory.length - 2)
+        const shouldEmbedClipboardImages = i === (cleanHistory.length - 1)
           && msg.role === "user"
           && canUseStructuredImages
           && clipboardImageAttachments.length > 0;
@@ -4309,10 +4469,10 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       }
 
       const messages = [];
-      // Compile chat history messages (excluding the final assistant streaming bubble)
-      for (let i = 0; i < chatHistory.length - 1; i++) {
-        const msg = chatHistory[i];
-        const shouldEmbedClipboardImages = i === (chatHistory.length - 2)
+      // Compile chat history messages (using cleanHistory)
+      for (let i = 0; i < cleanHistory.length; i++) {
+        const msg = cleanHistory[i];
+        const shouldEmbedClipboardImages = i === (cleanHistory.length - 1)
           && msg.role === "user"
           && clipboardImageAttachments.length > 0;
         if (shouldEmbedClipboardImages) {
@@ -4417,10 +4577,10 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       });
 
       let promptToSend = promptText;
-      if (chatHistory.length > 2) {
+      if (cleanHistory.length > 1) {
         let historyPrompt = "You are working in a multi-turn session. Here is the conversation history so far for your reference:\n\n";
-        for (let i = 0; i < chatHistory.length - 2; i++) {
-          const msg = chatHistory[i];
+        for (let i = 0; i < cleanHistory.length - 1; i++) {
+          const msg = cleanHistory[i];
           const sender = msg.role === "user" ? "User" : "Assistant";
           historyPrompt += `--- ${sender} ---\n${msg.content}\n\n`;
         }
@@ -4600,6 +4760,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       error: err.message || t("chat.network_error")
     });
     assistantMsgObj.content = errMsg;
+    assistantMsgObj.isError = true; // Flag this turn as failed to avoid history context pollution
     scheduleStreamStatePersist();
 
     if (targetTabId === currentTabId) {
