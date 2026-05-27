@@ -235,9 +235,15 @@
         <button id="create-fallback-rule-btn" class="banner-action-btn" data-i18n-text="footer.create_global_rule">👉 创建全局规则</button>
       </div>
 
-      <div id="connection-status-pill" class="status-pill offline">
-        <span class="pulse-indicator"></span>
-        <span id="connected-model-name" data-i18n-text="footer.model_not_configured">未配置 AI 模型</span>
+      <div class="footer-status-row">
+        <div id="connection-status-pill" class="status-pill offline">
+          <span class="pulse-indicator"></span>
+          <span id="connected-model-name" data-i18n-text="footer.model_not_configured">未配置 AI 模型</span>
+        </div>
+        <div id="workspace-status-pill" class="status-pill workspace hidden" title="工作区 CWD">
+          <span class="workspace-icon">📁</span>
+          <span id="connected-workspace-name">-</span>
+        </div>
       </div>
 
       <div id="model-quick-popover" class="model-quick-popover hidden">

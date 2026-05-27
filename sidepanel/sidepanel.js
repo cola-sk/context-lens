@@ -2946,6 +2946,34 @@ function updateStatusUI() {
   if (hasTemporaryOverride) {
     connectedModelName.textContent = `${connectedModelName.textContent}${t("status.temporary_suffix")}`;
   }
+
+  // Display matched URL rule's workspace next to the active model status pill
+  let matchedCwd = "";
+  const workspaceStatusPill = document.getElementById("workspace-status-pill");
+  const connectedWorkspaceName = document.getElementById("connected-workspace-name");
+
+  if (currentTabId) {
+    const state = getTabState(currentTabId);
+    const tabUrl = state.currentContext?.pageUrl || currentContext?.pageUrl || "";
+    if (tabUrl) {
+      const rule = findMatchingRule(tabUrl);
+      if (rule && rule.cwd && rule.cwd.trim()) {
+        matchedCwd = rule.cwd.trim();
+      }
+    }
+  }
+
+  if (workspaceStatusPill && connectedWorkspaceName) {
+    if (isReadyForChat && matchedCwd) {
+      // Shorten displayed CWD path for sleeker look
+      const displayPath = matchedCwd.length > 30 ? "..." + matchedCwd.slice(-27) : matchedCwd;
+      connectedWorkspaceName.textContent = displayPath;
+      workspaceStatusPill.setAttribute("title", `本地工作区路径: ${matchedCwd}`);
+      workspaceStatusPill.classList.remove("hidden");
+    } else {
+      workspaceStatusPill.classList.add("hidden");
+    }
+  }
 }
 
 

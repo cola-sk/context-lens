@@ -1303,6 +1303,28 @@ body.dark-theme {
   background: rgba(245, 158, 11, 0.08);
 }
 
+.footer-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.status-pill.workspace {
+  border-color: rgba(99, 102, 241, 0.18);
+  background: rgba(99, 102, 241, 0.04);
+  color: var(--accent-indigo);
+  max-width: calc(100% - 130px);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.workspace-icon {
+  margin-right: 2px;
+  font-size: 11px;
+}
+
 .pulse-indicator {
   width: 6px;
   height: 6px;
