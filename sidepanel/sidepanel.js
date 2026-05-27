@@ -181,6 +181,46 @@ function restoreActiveTabState(tabId) {
   renderPendingClipboardAttachments();
 }
 
+// Ensure tab has basic page context populated when there is no text selection
+async function ensureBasicPageContext(tabId) {
+  if (!tabId) return;
+  const state = getTabState(tabId);
+  
+  // If we already have an active highlighted text selection, do not overwrite it.
+  if (state.currentContext && state.currentContext.text !== "") return;
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab || !tab.url) return;
+
+    // Ignore internal chrome/extension pages
+    const url = tab.url;
+    if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("about:")) {
+      return;
+    }
+
+    // Initialize with a clean page-only context containing ONLY basic page info (Title and URL)
+    state.currentContext = {
+      text: "",
+      pageUrl: tab.url,
+      pageTitle: tab.title || "",
+      timestamp: Date.now(),
+      contextData: null // No background DOM scraping/full-page body context
+    };
+    state.includeFullPageChecked = false; // Disable full page context by default for basic page info view
+
+    // Update global currentContext if this is the active tab
+    if (tabId === currentTabId) {
+      currentContext = state.currentContext;
+      includeFullPageChecked = false;
+      rebuildUIForActiveTab();
+    }
+  } catch (e) {
+    console.warn("Failed to ensure basic page context:", e);
+  }
+}
+
+
 function isSameSelectionSnapshot(prevSelection, nextSelection) {
   if (!prevSelection || !nextSelection) return false;
 
@@ -1022,6 +1062,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         saveActiveTabState();
         restoreActiveTabState(activeInfo.tabId);
         await applyUrlSwitchingForTab(tab);
+        ensureBasicPageContext(activeInfo.tabId);
         rebuildUIForActiveTab();
       }
     } catch (e) {
@@ -1036,6 +1077,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         saveActiveTabState();
         restoreActiveTabState(tabId);
         await applyUrlSwitchingForTab(tab);
+        
+        // Reset and force reload context on refresh/reload
+        const state = getTabState(tabId);
+        if (state.currentContext && state.currentContext.text === "") {
+          state.currentContext = null;
+        }
+        ensureBasicPageContext(tabId);
+        
         rebuildUIForActiveTab();
       }
     } catch (e) {
@@ -1055,7 +1104,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // Check if there is already a selection on load
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (tabs[0]) {
     currentTabId = tabs[0].id;
   }
@@ -1074,6 +1123,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const isFreshUserAction = selectionAgeMs < 5000;
     handleNewSelection(sessionData.lastSelection, isFreshUserAction);
   } else {
+    if (currentTabId) {
+      ensureBasicPageContext(currentTabId);
+    }
     rebuildUIForActiveTab();
   }
 });
@@ -1389,7 +1441,7 @@ function closeModelQuickPopover() {
 async function openModelQuickPopover() {
   if (!modelQuickPopover || !modelQuickList) return;
 
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const tab = tabs[0];
   if (!tab) return;
 
@@ -1861,7 +1913,7 @@ function setupEventListeners() {
       let activeUrl = "";
       let activeTitle = "";
       try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         if (tabs[0]) {
           activeUrl = tabs[0].url || "";
           activeTitle = tabs[0].title || "";
@@ -3147,7 +3199,11 @@ function rebuildUIForActiveTab() {
       }
     }
 
-    contextBanner.classList.remove("hidden");
+    if (currentContext.text !== "" || (chatHistory && chatHistory.length > 0)) {
+      contextBanner.classList.remove("hidden");
+    } else {
+      contextBanner.classList.add("hidden");
+    }
   } else {
     contextBanner.classList.add("hidden");
     const includeFullPageContainer = document.getElementById("full-page-toggle-container");
@@ -3168,6 +3224,21 @@ function rebuildUIForActiveTab() {
       includeSelectionImagesToggle.checked = false;
     }
     includeSelectionImagesChecked = false;
+  }
+
+  // Update Welcome Screen Page Context Connection Status Indicator
+  const welcomeContextStatus = document.getElementById("welcome-context-status");
+  const welcomeContextText = document.getElementById("welcome-context-text");
+  if (welcomeContextStatus && welcomeContextText) {
+    if (currentContext && currentContext.pageUrl) {
+      welcomeContextStatus.classList.remove("hidden");
+      welcomeContextText.textContent = uiLanguage === "en"
+        ? `🌐 Auto-connected: ${currentContext.pageTitle || 'Webpage'}`
+        : `🌐 已自动载入当前网页: ${currentContext.pageTitle || '未命名网页'}`;
+      welcomeContextStatus.setAttribute("title", currentContext.pageUrl);
+    } else {
+      welcomeContextStatus.classList.add("hidden");
+    }
   }
 
   // 2. Re-render Chat History
@@ -3210,7 +3281,8 @@ function rebuildUIForActiveTab() {
     welcomeScreen.classList.add("hidden");
     messagesList.classList.remove("hidden");
   } else {
-    if (currentContext) {
+    // If chat history is empty, only hide welcome screen if there is an active text highlight
+    if (currentContext && currentContext.text && currentContext.text.trim() !== "") {
       welcomeScreen.classList.add("hidden");
       messagesList.classList.remove("hidden");
     } else {
@@ -3490,9 +3562,10 @@ The user highlighted the following specific cell text:
 
         fullPrompt += buildImageContextBlock(contextImages);
 
-        // Append simplified full-page context if checkbox is checked
+        // Append simplified full-page context if checkbox is checked or if we are in page-only mode (no text selection)
         const includeFullPageToggle = document.getElementById("include-full-page-context");
-        if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
+        const shouldIncludeFullPage = (includeFullPageToggle && includeFullPageToggle.checked) || (!currentContext || !currentContext.text);
+        if (shouldIncludeFullPage && cd.fullPageSimplifiedText) {
           fullPrompt += `\n[Full Page Simplified Context]\nBelow is a token-efficient, simplified extraction of the main body of this webpage:\n"""\n${cd.fullPageSimplifiedText}\n"""\n`;
         }
 
@@ -3552,9 +3625,10 @@ The user highlighted the following specific cell text:
 
         fullPrompt += buildImageContextBlock(contextImages);
 
-        // Append simplified full-page context if checkbox is checked
+        // Append simplified full-page context if checkbox is checked or if we are in page-only mode (no text selection)
         const includeFullPageToggle = document.getElementById("include-full-page-context");
-        if (includeFullPageToggle && includeFullPageToggle.checked && cd.fullPageSimplifiedText) {
+        const shouldIncludeFullPage = (includeFullPageToggle && includeFullPageToggle.checked) || (!currentContext || !currentContext.text);
+        if (shouldIncludeFullPage && cd.fullPageSimplifiedText) {
           fullPrompt += `\n[Full Page Simplified Context]\nBelow is a token-efficient, simplified extraction of the main body of this webpage:\n"""\n${cd.fullPageSimplifiedText}\n"""\n`;
         }
 
@@ -3861,7 +3935,7 @@ async function saveChatHistory(tabId) {
   
   if (!url) {
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       if (tabs[0]) {
         url = tabs[0].url || "";
         pageTitle = tabs[0].title || "";
@@ -3960,7 +4034,7 @@ function restoreChatHistory(session) {
     welcomeScreen.classList.add("hidden");
     messagesList.classList.remove("hidden");
   } else {
-    if (currentContext) {
+    if (currentContext && currentContext.text && currentContext.text.trim() !== "") {
       welcomeScreen.classList.add("hidden");
       messagesList.classList.remove("hidden");
     } else {
@@ -3992,7 +4066,7 @@ async function renderHistoryList() {
     }
     if (!currentUrl) {
       try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         if (tabs[0]) {
           currentUrl = tabs[0].url || "";
         }
@@ -5602,7 +5676,7 @@ function formatAgentLogs(text) {
 // Evaluate URL auto-switching rules for the current active tab
 async function evaluateUrlSwitchingForActiveTab() {
   try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (tabs[0]) {
       await applyUrlSwitchingForTab(tabs[0]);
     }
