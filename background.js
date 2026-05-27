@@ -264,60 +264,80 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
           selectionPayload.text = cached.text;
         }
       } else {
+        let resolvedResponse = null;
+        
+        // 1. Try to send message to the specific frame clicked
         try {
-          // If no fresh cache, query the content script of the specific frame that was clicked
           const response = await chrome.tabs.sendMessage(
             tab.id, 
             { type: "GET_RICH_CONTEXT" }, 
             { frameId: info.frameId }
           );
           if (response && response.success && response.contextData) {
-            console.log("🔮 [ContextLens Background] Successfully retrieved rich DOM context from active frame!");
-            selectionPayload.contextData = response.contextData;
-            if (!selectionPayload.text && response.contextData.selectedText) {
-              selectionPayload.text = response.contextData.selectedText;
-            }
+            resolvedResponse = response;
+            console.log(`🔮 [ContextLens Background] Successfully retrieved rich DOM context from frame ${info.frameId}!`);
           }
         } catch (err) {
-          console.log("🔮 [ContextLens Background] Active frame not ready or no context cached. Using fallback.", err.message);
-          
-          // Self-heal: dynamically inject content script if missing
-          if (err.message.includes("Could not establish connection") || err.message.includes("Receiving end does not exist")) {
-            try {
-              await chrome.scripting.executeScript({
-                target: { tabId: tab.id, frameIds: [info.frameId || 0] },
-                files: ["content.js"]
-              });
-              await chrome.scripting.insertCSS({
-                target: { tabId: tab.id, frameIds: [info.frameId || 0] },
-                files: ["content.css"]
-              });
-              console.log("🔮 [ContextLens Background] Dynamically self-healed and injected content script into frame!");
+          console.log(`🔮 [ContextLens Background] Specific frame ${info.frameId} failed:`, err.message);
+        }
 
-              // Retry once after dynamic injection so first interaction on a freshly-opened page
-              // can still capture rich context instead of falling back to empty payload.
-              try {
-                const retried = await chrome.tabs.sendMessage(
-                  tab.id,
-                  { type: "GET_RICH_CONTEXT" },
-                  { frameId: info.frameId }
-                );
-                if (retried && retried.success && retried.contextData) {
-                  selectionPayload.contextData = retried.contextData;
-                  if (!selectionPayload.text && retried.contextData.selectedText) {
-                    selectionPayload.text = retried.contextData.selectedText;
-                  }
-                }
-              } catch (retryErr) {
-                console.log("🔮 [ContextLens Background] Retry after injection still failed:", retryErr.message);
-              }
-            } catch (injectErr) {
-              console.warn("🔮 [ContextLens Background] Self-healing injection failed:", injectErr);
+        // 2. If specific frame failed and it was a sub-frame, try main frame (frameId: 0) as fallback
+        if (!resolvedResponse && info.frameId !== 0) {
+          try {
+            console.log("🔮 [ContextLens Background] Trying main frame (frameId: 0) fallback...");
+            const response = await chrome.tabs.sendMessage(
+              tab.id, 
+              { type: "GET_RICH_CONTEXT" }, 
+              { frameId: 0 }
+            );
+            if (response && response.success && response.contextData) {
+              resolvedResponse = response;
+              console.log("🔮 [ContextLens Background] Successfully recovered context from main frame!");
             }
+          } catch (err) {
+            console.log("🔮 [ContextLens Background] Main frame fallback also failed:", err.message);
           }
         }
 
-        if (!selectionPayload.contextData) {
+        // 3. Self-heal/Inject if both failed due to content script missing
+        if (!resolvedResponse) {
+          const targetFrameId = info.frameId || 0;
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id, frameIds: [targetFrameId] },
+              files: ["content.js"]
+            });
+            await chrome.scripting.insertCSS({
+              target: { tabId: tab.id, frameIds: [targetFrameId] },
+              files: ["content.css"]
+            });
+            console.log(`🔮 [ContextLens Background] Dynamically self-healed and injected content script into frame ${targetFrameId}!`);
+
+            // Retry after injection
+            try {
+              const response = await chrome.tabs.sendMessage(
+                tab.id,
+                { type: "GET_RICH_CONTEXT" },
+                { frameId: targetFrameId }
+              );
+              if (response && response.success && response.contextData) {
+                resolvedResponse = response;
+              }
+            } catch (retryErr) {
+              console.log("🔮 [ContextLens Background] Retry after injection failed:", retryErr.message);
+            }
+          } catch (injectErr) {
+            console.warn("🔮 [ContextLens Background] Self-healing injection failed:", injectErr.message || injectErr);
+          }
+        }
+
+        // 4. Assign compiled context or fall back to context menu fallback
+        if (resolvedResponse) {
+          selectionPayload.contextData = resolvedResponse.contextData;
+          if (!selectionPayload.text && resolvedResponse.contextData.selectedText) {
+            selectionPayload.text = resolvedResponse.contextData.selectedText;
+          }
+        } else {
           const fallbackContext = buildFallbackContextFromMenuInfo(info, tab);
           if (fallbackContext) {
             selectionPayload.contextData = fallbackContext;
