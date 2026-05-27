@@ -284,7 +284,7 @@ function extractImagesFromElement(element, maxImages = 5) {
 }
 
 // Extract a highly simplified, token-efficient text extraction of the entire article/webpage
-function getFullPageSimplifiedText(maxChars = 6000) {
+function getFullPageSimplifiedText(maxChars = 50000) {
   try {
     // 1. Identify best semantic content containers
     const selectors = [
@@ -510,7 +510,7 @@ function showButtonAtSelection(selection) {
     const semanticPath = buildSemanticPath(ancestor);
 
     // 3. Extract full page simplified text context
-    const fullPageSimplified = getFullPageSimplifiedText(6000);
+    const fullPageSimplified = getFullPageSimplifiedText(50000);
     const images = extractImagesFromRange(range, 5);
 
     currentSelectionContext = {
@@ -592,7 +592,7 @@ function compileElementContext(element) {
                      document.querySelector('meta[property="og:description"]')?.content || "";
 
     const semanticPath = buildSemanticPath(element);
-    const fullPageSimplified = getFullPageSimplifiedText(6000);
+    const fullPageSimplified = getFullPageSimplifiedText(50000);
     const images = extractImagesFromElement(element, 5);
 
     return {
@@ -802,7 +802,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === "GET_PAGE_CONTEXT") {
     console.log("🔮 [ContextLens] Background/Sidepanel requested page-only context.");
     try {
-      const fullPageSimplified = getFullPageSimplifiedText(6000);
+      const fullPageSimplified = getFullPageSimplifiedText(50000);
       const metaDesc = document.querySelector('meta[name="description"]')?.content || 
                        document.querySelector('meta[property="og:description"]')?.content || "";
       sendResponse({
