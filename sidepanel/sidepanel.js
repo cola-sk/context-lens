@@ -1073,19 +1073,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     try {
       const currentWindow = await chrome.windows.getCurrent();
-      if (tab.active && tab.windowId === currentWindow.id && changeInfo.status === "complete") {
-        saveActiveTabState();
-        restoreActiveTabState(tabId);
-        await applyUrlSwitchingForTab(tab);
-        
-        // Reset and force reload context on refresh/reload
-        const state = getTabState(tabId);
-        if (state.currentContext && state.currentContext.text === "") {
-          state.currentContext = null;
+      if (tab.active && tab.windowId === currentWindow.id) {
+        const isUrlChanged = !!changeInfo.url;
+        const isTitleChanged = !!changeInfo.title;
+        const isComplete = changeInfo.status === "complete";
+
+        if (isUrlChanged || isTitleChanged || isComplete) {
+          saveActiveTabState();
+          restoreActiveTabState(tabId);
+          await applyUrlSwitchingForTab(tab);
+          
+          // Reset and force reload context on refresh/navigation/complete
+          const state = getTabState(tabId);
+          if (state.currentContext && state.currentContext.text === "") {
+            state.currentContext = null;
+          }
+          ensureBasicPageContext(tabId);
+          
+          rebuildUIForActiveTab();
         }
-        ensureBasicPageContext(tabId);
-        
-        rebuildUIForActiveTab();
       }
     } catch (e) {
       console.warn("Failed to handle tab update in sidepanel:", e);
