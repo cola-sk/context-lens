@@ -1671,7 +1671,7 @@ function renderAvailableModelCards() {
       <div class="model-card-side">
         ${card.id === activeModelId ? '<div class="model-card-active-indicator"></div>' : ""}
         ${!card.disabled ? `
-          <button class="model-card-pin${contextMenuModelIds.includes(card.id) ? " pinned" : ""}" title="${contextMenuModelIds.includes(card.id) ? t("model.unpin_title") : t("model.pin_title")}" data-pin-id="${card.id}">
+          <button class="model-card-pin${contextMenuModelIds.includes(card.id) ? " pinned" : ""}" data-tooltip="${contextMenuModelIds.includes(card.id) ? t("model.unpin_title") : t("model.pin_title")}" data-pin-id="${card.id}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.89A.5.5 0 0 0 6.33 14h11.34a.5.5 0 0 0 .22-.56l-1.78-.89a2 2 0 0 1-1.11-1.79V4H9v6.76zM8 4h8"></path>
             </svg>
