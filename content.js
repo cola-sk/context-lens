@@ -274,10 +274,15 @@ function extractImagesFromElement(element, maxImages = 5) {
     if (single) candidates.push(single);
   }
 
-  const imgs = element.querySelectorAll ? Array.from(element.querySelectorAll("img")) : [];
-  for (const img of imgs) {
-    const meta = extractImageMeta(img);
-    if (meta) candidates.push(meta);
+  // Only extract nested images if the element is an image wrapper (like <picture> or <figure>)
+  // to avoid capturing all ambient/structural images on the page when right-clicking on empty spaces or containers.
+  const isImageWrapper = element.tagName === "PICTURE" || element.tagName === "FIGURE";
+  if (isImageWrapper) {
+    const imgs = element.querySelectorAll ? Array.from(element.querySelectorAll("img")) : [];
+    for (const img of imgs) {
+      const meta = extractImageMeta(img);
+      if (meta) candidates.push(meta);
+    }
   }
 
   return dedupeAndClampImages(candidates, maxImages);
