@@ -25,63 +25,94 @@ const DEFAULT_MODEL_LABELS = {
   en: "Default Model"
 };
 
+function createContextMenuSafe(options) {
+  chrome.contextMenus.create(options, () => {
+    const err = chrome.runtime.lastError;
+    if (err) {
+      console.warn(`🔮 [ContextLens Background] Suppressed contextMenus.create error for ID "${options.id}":`, err.message);
+    }
+  });
+}
+
+let isRebuilding = false;
+let hasPendingRebuild = false;
+
 async function rebuildContextMenus() {
-  try {
-    await chrome.contextMenus.removeAll();
-  } catch (err) {
-    console.warn("🔮 [ContextLens Background] Failed to clear context menus:", err);
-  }
-
-  const result = await chrome.storage.local.get(["contextMenuModelIds", "configuredApiModels", "uiLanguage"]);
-  const contextMenuModelIds = result.contextMenuModelIds || [];
-  const configuredApiModels = result.configuredApiModels || [];
-  const uiLang = result.uiLanguage === "en" ? "en" : "zh";
-
-  if (contextMenuModelIds.length === 0) {
-    chrome.contextMenus.create({
-      id: "ask-contextlens",
-      title: "Ask ContextLens",
-      contexts: ["all"]
-    });
-    console.log("🔮 [ContextLens Background] Registered single top-level context menu.");
+  if (isRebuilding) {
+    hasPendingRebuild = true;
     return;
   }
+  isRebuilding = true;
 
-  chrome.contextMenus.create({
-    id: "ask-contextlens-parent",
-    title: "Ask ContextLens",
-    contexts: ["all"]
-  });
+  try {
+    do {
+      hasPendingRebuild = false;
 
-  const defaultLabel = DEFAULT_MODEL_LABELS[uiLang] || "Default Model";
-  chrome.contextMenus.create({
-    id: "ask-contextlens-default",
-    parentId: "ask-contextlens-parent",
-    title: defaultLabel,
-    contexts: ["all"]
-  });
-
-  for (const modelId of contextMenuModelIds) {
-    let label = modelId;
-    const localLabels = LOCAL_AGENT_LABELS[uiLang] || LOCAL_AGENT_LABELS.zh;
-    if (localLabels[modelId]) {
-      label = localLabels[modelId];
-    } else {
-      const apiModel = configuredApiModels.find(m => m.id === modelId);
-      if (apiModel) {
-        label = apiModel.label || apiModel.provider || modelId;
+      try {
+        await chrome.contextMenus.removeAll();
+      } catch (err) {
+        console.warn("🔮 [ContextLens Background] Failed to clear context menus:", err);
       }
-    }
 
-    chrome.contextMenus.create({
-      id: `ask-contextlens-model-${modelId}`,
-      parentId: "ask-contextlens-parent",
-      title: label,
-      contexts: ["all"]
-    });
+      const result = await chrome.storage.local.get(["contextMenuModelIds", "configuredApiModels", "uiLanguage"]);
+      const contextMenuModelIds = result.contextMenuModelIds || [];
+      const configuredApiModels = result.configuredApiModels || [];
+      const uiLang = result.uiLanguage === "en" ? "en" : "zh";
+
+      // If a new rebuild request arrived while we were waiting for storage,
+      // restart the loop directly without registering obsolete menu items.
+      if (hasPendingRebuild) {
+        continue;
+      }
+
+      if (contextMenuModelIds.length === 0) {
+        createContextMenuSafe({
+          id: "ask-contextlens",
+          title: "Ask ContextLens",
+          contexts: ["all"]
+        });
+        console.log("🔮 [ContextLens Background] Registered single top-level context menu.");
+      } else {
+        createContextMenuSafe({
+          id: "ask-contextlens-parent",
+          title: "Ask ContextLens",
+          contexts: ["all"]
+        });
+
+        const defaultLabel = DEFAULT_MODEL_LABELS[uiLang] || "Default Model";
+        createContextMenuSafe({
+          id: "ask-contextlens-default",
+          parentId: "ask-contextlens-parent",
+          title: defaultLabel,
+          contexts: ["all"]
+        });
+
+        for (const modelId of contextMenuModelIds) {
+          let label = modelId;
+          const localLabels = LOCAL_AGENT_LABELS[uiLang] || LOCAL_AGENT_LABELS.zh;
+          if (localLabels[modelId]) {
+            label = localLabels[modelId];
+          } else {
+            const apiModel = configuredApiModels.find(m => m.id === modelId);
+            if (apiModel) {
+              label = apiModel.label || apiModel.provider || modelId;
+            }
+          }
+
+          createContextMenuSafe({
+            id: `ask-contextlens-model-${modelId}`,
+            parentId: "ask-contextlens-parent",
+            title: label,
+            contexts: ["all"]
+          });
+        }
+
+        console.log(`🔮 [ContextLens Background] Registered context menu tree with ${contextMenuModelIds.length} pinned models.`);
+      }
+    } while (hasPendingRebuild);
+  } finally {
+    isRebuilding = false;
   }
-
-  console.log(`🔮 [ContextLens Background] Registered context menu tree with ${contextMenuModelIds.length} pinned models.`);
 }
 
 // Initialize context menus at startup
