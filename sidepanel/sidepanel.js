@@ -238,11 +238,14 @@ function isSameSelectionSnapshot(prevSelection, nextSelection) {
   return sameText && samePage && sameTitle && prevSerializedContext === nextSerializedContext;
 }
 
-// System prompt to feed the AI
-const SYSTEM_PROMPT = `You are ContextLens, a precise and helpful AI coding and research assistant.
-You are helping the user understand a snippet of text they selected on a website.
-Provide explanations, code debugging, or answers in direct response to their selected text and any follow-up questions they have.
+// System prompt to feed the AI — dynamically adapted based on whether the user has a text selection
+function getSystemPrompt(context) {
+  const hasSnippet = context && typeof context.text === "string" && context.text.trim() !== "";
+  return `You are ContextLens, a precise and helpful AI coding and research assistant.
+You are helping the user ${hasSnippet ? 'understand a snippet of text they selected on a website' : 'explore and analyze the webpage they are viewing'}.
+Provide explanations, code debugging, or answers in direct response to their ${hasSnippet ? 'selected text' : 'page context'} and any follow-up questions they have.
 Be concise, accurate, and focus directly on the context provided. Use markdown formatting for code blocks, lists, and bold text.`;
+}
 
 function getContextImages(contextData, maxImages = 5) {
   if (!contextData || !Array.isArray(contextData.images)) return [];
@@ -3044,6 +3047,9 @@ function updateStatusUI() {
 // Handle selected text arrivals
 // Rebuild the complete UI for the active tab
 function rebuildUIForActiveTab() {
+  // Do not wipe the chat DOM while a response is actively streaming.
+  if (isRequestRunningForTab(currentTabId)) return;
+
   const includeFullPageToggle = document.getElementById("include-full-page-context");
   const requestState = getTabRequestState(currentTabId);
 
@@ -3498,6 +3504,28 @@ async function handleSendMessage() {
     ? (matchedRuleForRequest.cwd || "").trim()
     : "";
   const effectiveCwd = _isAgentProvider && matchedRuleCwd ? matchedRuleCwd : "";
+
+  // Silently ensure basic page context is populated if the user has no selection and currentContext is null.
+  // This handles edge cases: user cleared context, or ensureBasicPageContext hasn't resolved yet.
+  if (!currentContext && messageTabId) {
+    try {
+      const tab = await chrome.tabs.get(messageTabId);
+      if (tab && tab.url && !tab.url.startsWith("chrome://") && !tab.url.startsWith("chrome-extension://") && !tab.url.startsWith("about:")) {
+        const basicContext = {
+          text: "",
+          pageUrl: tab.url,
+          pageTitle: tab.title || "",
+          timestamp: Date.now(),
+          contextData: null
+        };
+        currentContext = basicContext;
+        const state = getTabState(messageTabId);
+        state.currentContext = basicContext;
+      }
+    } catch (e) {
+      console.warn("Failed to silently fetch basic tab context on send:", e);
+    }
+  }
 
   // If we have selected text context, prepend/attach it
   if (currentContext && chatHistory.length === 1) {
@@ -4333,9 +4361,15 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       
       // Inject System Instruction as standard model instructions or a system prompt
       // For simplicity and compatibility, we inject system instructions in the first prompt
-      let geminiSystem = SYSTEM_PROMPT;
-      if (currentContext) {
-        geminiSystem += `\nSelected Context:\nSnippet: "${currentContext.text}"\nSource: ${currentContext.pageTitle}\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+      let geminiSystem = getSystemPrompt(currentContext);
+      // Only append context block if it hasn't already been embedded into chatHistory[0] via fullPrompt
+      if (currentContext && !cleanHistory[0]?._contextEmbedded) {
+        const hasSnippet = typeof currentContext.text === "string" && currentContext.text.trim() !== "";
+        if (hasSnippet) {
+          geminiSystem += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        } else if (currentContext.pageUrl) {
+          geminiSystem += `\nCurrent page: "${currentContext.pageTitle}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        }
       }
 
       // Add history (Gemini format: role 'user' or 'model')
@@ -4497,9 +4531,14 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Prepare system context
       // Only inject selected text into system prompt if it hasn't already been
       // embedded into chatHistory[0] as a fullPrompt (avoid duplicate context)
-      let systemContent = SYSTEM_PROMPT;
+      let systemContent = getSystemPrompt(currentContext);
       if (currentContext && !chatHistory[0]?._contextEmbedded) {
-        systemContent += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        const hasSnippet = typeof currentContext.text === "string" && currentContext.text.trim() !== "";
+        if (hasSnippet) {
+          systemContent += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        } else if (currentContext.pageUrl) {
+          systemContent += `\nCurrent page: "${currentContext.pageTitle}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        }
       }
 
       // Compile chat history messages
@@ -4626,9 +4665,14 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Build Claude prompt
       // Only inject selected text into system prompt if it hasn't already been
       // embedded into chatHistory[0] as a fullPrompt (avoid duplicate context)
-      let systemContent = SYSTEM_PROMPT;
+      let systemContent = getSystemPrompt(currentContext);
       if (currentContext && !chatHistory[0]?._contextEmbedded) {
-        systemContent += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        const hasSnippet = typeof currentContext.text === "string" && currentContext.text.trim() !== "";
+        if (hasSnippet) {
+          systemContent += `\nSelected context from webpage "${currentContext.pageTitle}":\n"${currentContext.text}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        } else if (currentContext.pageUrl) {
+          systemContent += `\nCurrent page: "${currentContext.pageTitle}"\nURL: ${currentContext.pageUrl}\nNote for Agent: You are provided with the direct URL of this webpage/article. If the provided snippet or page context is insufficient, or if you need to fetch/pull the complete, updated or original contents of the webpage/article to provide a better answer, you can fetch or browse it using the URL provided above.`;
+        }
       }
 
       const messages = [];
