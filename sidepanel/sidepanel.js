@@ -22,6 +22,8 @@ let appSettings = {
 
 // Active Model ID (references an item in configuredApiModels or a detected local agent id)
 let activeModelId = null;
+// Default/base model used by restore flow (independent from temporary active selections in settings)
+let defaultModelId = null;
 
 // Pinned model IDs in context menu (max 5)
 let contextMenuModelIds = [];
@@ -60,6 +62,7 @@ let addedProviderModels = {
 // Tab Isolation Cache
 let tabStates = {}; // tabId -> { currentContext, chatHistory, includeFullPageChecked, autoScrollEnabled, chatScrollTop }
 let currentTabId = null;
+let lastRenderedTabId = null; // tracks which tab's conversation is currently painted in the DOM
 let tabTemporaryModelOverrides = {}; // tabId -> { modelId, updatedAt }
 let tabStatesPersistTimer = null;
 let autoScrollEnabled = true;
@@ -616,6 +619,7 @@ const I18N = {
     "rules.validation_model": "请选择有效的模型",
     "chat.user_label": "您",
     "chat.user_stopped": "⏹️ 已中断当前请求。",
+    "chat.panel_closed_interrupted": "⚠️ Side panel 已关闭，当前任务已中断。",
     "chat.config_incomplete": "⚠️ ContextLens 尚未完成配置。请点击右上角打开 AI 服务端配置面板，填写您的 API 密钥并保存！",
     "settings.model_cards_bridge_offline": "Bridge 未连接（本地 Agent 不可用）· {apiCount} 个 API 模型",
     "settings.model_cards_summary": "{localCount} 个本地 Agent · {apiCount} 个 API 模型",
@@ -817,6 +821,7 @@ const I18N = {
     "rules.validation_model": "Please choose a valid model",
     "chat.user_label": "You",
     "chat.user_stopped": "⏹️ Request stopped.",
+    "chat.panel_closed_interrupted": "⚠️ Side panel was closed. The running request was interrupted.",
     "chat.config_incomplete": "⚠️ ContextLens is not configured yet. Click top-right settings and add your API key first.",
     "settings.model_cards_bridge_offline": "Bridge offline (local agents unavailable) · {apiCount} API model(s)",
     "settings.model_cards_summary": "{localCount} local agent(s) · {apiCount} API model(s)",
@@ -1027,6 +1032,74 @@ async function handleStopStreamingRequest(tabId = currentTabId) {
   }
 }
 
+function finalizeInFlightRequestForTabOnPanelClose(tabId) {
+  if (!tabId) return false;
+  if (!hasPendingRequestForTab(tabId)) return false;
+
+  const requestState = getTabRequestState(tabId);
+  requestState.userAbortRequested = true;
+
+  if (requestState.activeAbortController) {
+    try {
+      requestState.activeAbortController.abort("ContextLens side panel closed");
+    } catch (e) {
+      console.warn("Failed to abort active request on panel close:", e);
+    } finally {
+      requestState.activeAbortController = null;
+    }
+  }
+
+  if (requestState.activeReader) {
+    try {
+      const cancelPromise = requestState.activeReader.cancel("ContextLens side panel closed");
+      if (cancelPromise && typeof cancelPromise.catch === "function") {
+        cancelPromise.catch((e) => console.warn("Failed to cancel active stream reader on panel close:", e));
+      }
+    } catch (e) {
+      console.warn("Failed to cancel active stream reader on panel close:", e);
+    } finally {
+      requestState.activeReader = null;
+    }
+  }
+
+  requestState.isRequestInProgress = false;
+
+  const state = getTabState(tabId);
+  const interruptedText = t("chat.panel_closed_interrupted");
+  let patchedExistingAssistant = false;
+
+  if (Array.isArray(state.chatHistory) && state.chatHistory.length > 0) {
+    const tail = state.chatHistory[state.chatHistory.length - 1];
+    if (tail && tail.role === "assistant" && tail.isAgentComplete === false) {
+      if (tail.content && tail.content.trim()) {
+        if (!tail.content.includes(interruptedText)) {
+          tail.content = `${tail.content}\n\n${interruptedText}`;
+        }
+      } else {
+        tail.content = interruptedText;
+      }
+      tail.isAgentComplete = true;
+      tail.isInterrupted = true;
+      patchedExistingAssistant = true;
+    }
+  }
+
+  if (!patchedExistingAssistant) {
+    state.chatHistory.push({
+      role: "assistant",
+      content: interruptedText,
+      isAgentComplete: true,
+      isInterrupted: true
+    });
+  }
+
+  if (tabId === currentTabId) {
+    chatHistory = [...state.chatHistory];
+  }
+
+  return true;
+}
+
 function isAbortError(err) {
   if (!err) return false;
   if (err.name === "AbortError") return true;
@@ -1043,6 +1116,17 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Persist in-memory tab state when panel is hidden/destroyed during tab switching.
   window.addEventListener("pagehide", () => {
+    const inflightTabIds = Object.keys(tabRequestStates)
+      .map((k) => Number(k))
+      .filter((id) => Number.isFinite(id) && hasPendingRequestForTab(id));
+
+    inflightTabIds.forEach((tabId) => {
+      const finalized = finalizeInFlightRequestForTabOnPanelClose(tabId);
+      if (finalized) {
+        void saveChatHistory(tabId);
+      }
+    });
+
     saveActiveTabState();
     flushPersistTabStates();
   });
@@ -1062,7 +1146,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (tab.windowId === currentWindow.id) {
         saveActiveTabState();
         restoreActiveTabState(activeInfo.tabId);
-        await applyUrlSwitchingForTab(tab);
+        await syncRuntimeSettingsForTab(activeInfo.tabId);
         ensureBasicPageContext(activeInfo.tabId);
         rebuildUIForActiveTab();
       }
@@ -1086,7 +1170,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (isUrlChanged || isTitleChanged || isComplete) {
           saveActiveTabState();
           restoreActiveTabState(tabId);
-          await applyUrlSwitchingForTab(tab);
+          await syncRuntimeSettingsForTab(tabId);
           
           // Reset and force reload context on refresh/navigation/complete
           const state = getTabState(tabId);
@@ -1143,7 +1227,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Load settings from chrome.storage.local
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "tabStates", "uiLanguage", "contextMenuModelIds"]);
+  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "defaultModelId", "tabStates", "uiLanguage", "contextMenuModelIds"]);
   
   tabStates = result.tabStates || {};
   uiLanguage = result.uiLanguage === "en" ? "en" : "zh";
@@ -1232,8 +1316,15 @@ async function loadSettings() {
     }
   }
 
-  // Load activeModelId
-  activeModelId = result.activeModelId || null;
+  // Load and normalize model ids.
+  const normalizedModelIds = normalizeModelIds(result.activeModelId || null, result.defaultModelId || null, {
+    migrateDefaultFromActive: !result.defaultModelId
+  });
+  activeModelId = normalizedModelIds.activeModelId;
+  defaultModelId = normalizedModelIds.defaultModelId;
+  if (normalizedModelIds.shouldPersist) {
+    await chrome.storage.local.set(normalizedModelIds.persistPayload);
+  }
 
   // Load contextMenuModelIds
   contextMenuModelIds = result.contextMenuModelIds || [];
@@ -1266,8 +1357,8 @@ async function loadSettings() {
   modelTemperature.value = appSettings.temperature;
   tempVal.textContent = appSettings.temperature;
 
-  // Resolve the active model from saved activeModelId (using existing detectedLocalAgents if any)
-  applyActiveModelToAppSettings();
+  // Resolve runtime base model from saved defaultModelId.
+  applyDefaultModelToAppSettings();
 
   // Initialize a backup copy of the default configurations
   defaultSettingsBackup = {
@@ -1293,7 +1384,7 @@ function refreshLocalAgentsAsync() {
   if (modelCardsStatus) modelCardsStatus.textContent = t("settings.detecting_agents");
   fetchLocalAgentsFromBridge(DEFAULT_BRIDGE_URL).then(async agents => {
     detectedLocalAgents = agents;
-    applyActiveModelToAppSettings();
+    applyDefaultModelToAppSettings();
     
     // Update the base settings backup so rules can fall back to the newly resolved agent
     defaultSettingsBackup = {
@@ -1352,7 +1443,110 @@ function getAllModelChoices() {
 
 function resolveModelChoiceById(modelId) {
   if (!modelId) return null;
-  return getAllModelChoices().find(choice => choice.id === modelId) || null;
+
+  const apiModel = configuredApiModels.find((model) => model.id === modelId);
+  if (apiModel) {
+    return {
+      id: apiModel.id,
+      type: "api",
+      provider: apiModel.provider,
+      model: apiModel.model,
+      label: apiModel.label || apiModel.model,
+      meta: `${apiModel.provider.toUpperCase()} API`,
+      apiKey: apiModel.apiKey || "",
+      apiUrl: apiModel.apiUrl || ""
+    };
+  }
+
+  const localAgent = detectedLocalAgents.find((agent) => agent && agent.id === modelId);
+  if (localAgent) {
+    return {
+      id: localAgent.id,
+      type: "local",
+      provider: localAgent.id,
+      model: localAgent.id,
+      label: localAgent.label || localAgent.id,
+      meta: localAgent.version ? `v${localAgent.version} · ${t("model.badge_local")}` : t("model.badge_local"),
+      executablePath: localAgent.executablePath || "",
+      available: localAgent.available !== false
+    };
+  }
+
+  if (modelId.endsWith("-agent")) {
+    const defaultLabelMap = {
+      "claude-agent": t("chat.local_agent_claude"),
+      "codex-agent": t("chat.local_agent_codex"),
+      "gemini-agent": t("chat.local_agent_gemini")
+    };
+    return {
+      id: modelId,
+      type: "local",
+      provider: modelId,
+      model: modelId,
+      label: defaultLabelMap[modelId] || modelId,
+      meta: t("model.badge_local"),
+      executablePath: "",
+      available: true
+    };
+  }
+
+  return null;
+}
+
+function getFallbackModelId() {
+  if (configuredApiModels.length > 0) {
+    return configuredApiModels[0].id;
+  }
+  const firstLocal = detectedLocalAgents.find((agent) => agent && agent.available);
+  if (firstLocal) {
+    return firstLocal.id;
+  }
+  return null;
+}
+
+function normalizeModelIds(activeId, defaultId, options = {}) {
+  const { migrateDefaultFromActive = false } = options;
+  const initialActive = activeId || null;
+  const initialDefault = defaultId || null;
+  let nextActive = initialActive;
+  let nextDefault = initialDefault;
+
+  if (!nextDefault && migrateDefaultFromActive) {
+    nextDefault = nextActive;
+  }
+
+  if (nextDefault && !resolveModelChoiceById(nextDefault)) {
+    nextDefault = null;
+  }
+  if (nextActive && !resolveModelChoiceById(nextActive)) {
+    nextActive = null;
+  }
+
+  const fallbackId = getFallbackModelId();
+  if (!nextDefault) {
+    nextDefault = fallbackId;
+  }
+  if (!nextActive) {
+    nextActive = nextDefault || fallbackId;
+  }
+  if (!nextDefault && nextActive) {
+    nextDefault = nextActive;
+  }
+
+  const persistPayload = {};
+  if (nextActive !== initialActive) {
+    persistPayload.activeModelId = nextActive;
+  }
+  if (nextDefault !== initialDefault) {
+    persistPayload.defaultModelId = nextDefault;
+  }
+
+  return {
+    activeModelId: nextActive,
+    defaultModelId: nextDefault,
+    shouldPersist: Object.keys(persistPayload).length > 0,
+    persistPayload
+  };
 }
 
 function applyModelChoiceToAppSettings(choice) {
@@ -1373,6 +1567,9 @@ function applyModelChoiceToAppSettings(choice) {
     }
   } else {
     const provCfg = defaultSettingsBackup?.providers?.[choice.provider] || appSettings.providers[choice.provider] || {};
+    if (!appSettings.providers[choice.provider]) {
+      appSettings.providers[choice.provider] = {};
+    }
 
     appSettings.apiProvider = choice.provider;
     appSettings.apiKey = "";
@@ -1587,70 +1784,53 @@ async function fetchLocalAgentsFromBridge(bridgeUrl) {
   return [];
 }
 
-// Apply the activeModelId selection to appSettings (used by AI call functions)
-function applyActiveModelToAppSettings() {
-  // Try to find the active model in configured API models
-  const apiModel = configuredApiModels.find(m => m.id === activeModelId);
-  if (apiModel) {
-    appSettings.apiProvider = apiModel.provider;
-    appSettings.apiKey = apiModel.apiKey || "";
-    appSettings.apiUrl = apiModel.apiUrl || "";
-    appSettings.modelName = apiModel.model || "";
-    appSettings.cwd = "";
-    appSettings.claudePath = "";
-    if (appSettings.providers[apiModel.provider]) {
-      appSettings.providers[apiModel.provider].apiKey = apiModel.apiKey || "";
-      appSettings.providers[apiModel.provider].apiUrl = apiModel.apiUrl || "";
-      appSettings.providers[apiModel.provider].modelName = apiModel.model || "";
-    }
+function applyDefaultModelToAppSettings() {
+  const normalized = normalizeModelIds(activeModelId, defaultModelId);
+  activeModelId = normalized.activeModelId;
+  defaultModelId = normalized.defaultModelId;
+  if (normalized.shouldPersist) {
+    void chrome.storage.local.set(normalized.persistPayload);
+  }
+
+  const choice = resolveModelChoiceById(defaultModelId);
+  if (choice && applyModelChoiceToAppSettings(choice)) {
     renderAvailableModelCards();
-    return;
-  }
-
-  // Try to find the active model in detected local agents
-  const localAgent = detectedLocalAgents.find(a => a.id === activeModelId && a.available);
-  if (localAgent) {
-    appSettings.apiProvider = localAgent.id;
-    appSettings.apiKey = "";
-    appSettings.apiUrl = DEFAULT_BRIDGE_URL;
-    appSettings.modelName = localAgent.id;
-    appSettings.cwd = "";
-    appSettings.claudePath = localAgent.executablePath || "";
-    
-    // Ensure the provider mapping is also updated for rules to see correct base values
-    if (!appSettings.providers[localAgent.id]) {
-      appSettings.providers[localAgent.id] = {};
-    }
-    appSettings.providers[localAgent.id].apiUrl = DEFAULT_BRIDGE_URL;
-    appSettings.providers[localAgent.id].claudePath = localAgent.executablePath || "";
-    
-    renderAvailableModelCards();
-    return;
-  }
-
-  // No active model matched: try to pick a first available one
-  const firstLocal = detectedLocalAgents.find(a => a.available);
-  if (firstLocal) {
-    console.log("[DEBUG] activeModelId not found or unavailable, falling back to first local agent:", firstLocal.id);
-    activeModelId = firstLocal.id;
-    chrome.storage.local.set({ activeModelId });
-    applyActiveModelToAppSettings();
-    return;
-  }
-
-  const firstApi = configuredApiModels[0];
-  if (firstApi) {
-    console.log("[DEBUG] No local agents available, falling back to first API model:", firstApi.id);
-    activeModelId = firstApi.id;
-    chrome.storage.local.set({ activeModelId });
-    applyActiveModelToAppSettings();
     return;
   }
 
   // Nothing configured
   appSettings.apiProvider = "gemini";
   appSettings.apiKey = "";
+  appSettings.apiUrl = "";
   appSettings.modelName = "";
+  appSettings.cwd = "";
+  appSettings.claudePath = "";
+  updateStatusUI();
+  renderAvailableModelCards();
+}
+
+// Apply the activeModelId selection to appSettings (for settings UI preview/selection)
+function applyActiveModelToAppSettings() {
+  const normalized = normalizeModelIds(activeModelId, defaultModelId);
+  activeModelId = normalized.activeModelId;
+  defaultModelId = normalized.defaultModelId;
+  if (normalized.shouldPersist) {
+    void chrome.storage.local.set(normalized.persistPayload);
+  }
+
+  const choice = resolveModelChoiceById(activeModelId);
+  if (choice && applyModelChoiceToAppSettings(choice)) {
+    renderAvailableModelCards();
+    return;
+  }
+
+  appSettings.apiProvider = "gemini";
+  appSettings.apiKey = "";
+  appSettings.apiUrl = "";
+  appSettings.modelName = "";
+  appSettings.cwd = "";
+  appSettings.claudePath = "";
+  updateStatusUI();
   renderAvailableModelCards();
 }
 
@@ -1816,11 +1996,21 @@ function renderAvailableModelCards() {
         e.stopPropagation();
         const deleteId = delBtn.dataset.deleteId;
         configuredApiModels = configuredApiModels.filter(m => m.id !== deleteId);
-        await chrome.storage.local.set({ configuredApiModels });
         if (activeModelId === deleteId) {
           activeModelId = null;
         }
-        applyActiveModelToAppSettings();
+        if (defaultModelId === deleteId) {
+          defaultModelId = null;
+        }
+        const normalized = normalizeModelIds(activeModelId, defaultModelId);
+        activeModelId = normalized.activeModelId;
+        defaultModelId = normalized.defaultModelId;
+        await chrome.storage.local.set({
+          configuredApiModels,
+          activeModelId,
+          defaultModelId
+        });
+        applyDefaultModelToAppSettings();
         renderAvailableModelCards();
       });
     }
@@ -2017,17 +2207,19 @@ function setupEventListeners() {
       }
       const temp = parseFloat(modelTemperature.value);
       appSettings.temperature = temp;
+      defaultModelId = activeModelId;
 
       // Persist active model id and temperature
       await chrome.storage.local.set({
         activeModelId,
+        defaultModelId,
         temperature: temp,
         providers: appSettings.providers,
         configuredApiModels
       });
 
       showSettingsStatus(t("settings.saved_applying"), "success");
-      applyActiveModelToAppSettings();
+      applyDefaultModelToAppSettings();
 
       // Update defaultSettingsBackup so rules can restore back to this new default
       defaultSettingsBackup = {
@@ -2056,7 +2248,7 @@ function setupEventListeners() {
       refreshAgentsBtn.disabled = true;
       fetchLocalAgentsFromBridge(DEFAULT_BRIDGE_URL).then(agents => {
         detectedLocalAgents = agents;
-        applyActiveModelToAppSettings();
+        applyDefaultModelToAppSettings();
         updateStatusUI();
       }).finally(() => {
         refreshAgentsBtn.style.opacity = "";
@@ -2259,8 +2451,11 @@ function setupEventListeners() {
             apiKey: apiKeyVal,
             apiUrl: apiUrlVal
           };
-          // If this was the active model, re-apply settings
-          if (activeModelId === editingModelId) {
+          // If this was the default runtime model, re-apply runtime settings.
+          if (defaultModelId === editingModelId) {
+            applyDefaultModelToAppSettings();
+            updateStatusUI();
+          } else if (activeModelId === editingModelId) {
             applyActiveModelToAppSettings();
             updateStatusUI();
           }
@@ -2279,11 +2474,21 @@ function setupEventListeners() {
         // Auto-select the new model if none was active
         if (!activeModelId) {
           activeModelId = newModel.id;
-          applyActiveModelToAppSettings();
+        }
+        // First configured model also becomes the default runtime model.
+        if (!defaultModelId) {
+          defaultModelId = newModel.id;
         }
       }
 
-      await chrome.storage.local.set({ configuredApiModels });
+      const normalizedModelIds = normalizeModelIds(activeModelId, defaultModelId);
+      activeModelId = normalizedModelIds.activeModelId;
+      defaultModelId = normalizedModelIds.defaultModelId;
+      await chrome.storage.local.set({
+        configuredApiModels,
+        activeModelId,
+        defaultModelId
+      });
 
       // Update provider cache too for backwards compat
       if (appSettings.providers[provider]) {
@@ -3045,8 +3250,11 @@ function updateStatusUI() {
 // Handle selected text arrivals
 // Rebuild the complete UI for the active tab
 function rebuildUIForActiveTab() {
-  // Do not wipe the chat DOM while a response is actively streaming.
-  if (isRequestRunningForTab(currentTabId)) return;
+  // Do not wipe the chat DOM while a response is actively streaming on the same
+  // already-rendered tab. If user switched tabs, we must repaint the new tab state.
+  const isStreamingCurrentTab = isRequestRunningForTab(currentTabId);
+  const isRenderingDifferentTab = lastRenderedTabId !== currentTabId;
+  if (isStreamingCurrentTab && !isRenderingDifferentTab) return;
 
   const includeFullPageToggle = document.getElementById("include-full-page-context");
   const requestState = getTabRequestState(currentTabId);
@@ -3242,6 +3450,7 @@ function rebuildUIForActiveTab() {
 
   // 2. Re-render Chat History
   messagesList.innerHTML = "";
+  const tabStreamRunning = isRequestRunningForTab(currentTabId);
   if (chatHistory && chatHistory.length > 0) {
     chatHistory.forEach((msg, idx) => {
       const isUser = msg.role === "user";
@@ -3257,12 +3466,17 @@ function rebuildUIForActiveTab() {
           <div class="message-bubble${isAgentMsg ? " agent-bubble" : ""}"></div>
         `;
         const bubble = msgEl.querySelector(".message-bubble");
+        const isActiveStreamingTail =
+          idx === chatHistory.length - 1 &&
+          msg.role === "assistant" &&
+          msg.isAgentComplete === false;
+        const shouldRenderComplete = !isActiveStreamingTail || !tabStreamRunning;
         renderAssistantMessage(
           bubble,
           msg.content,
           msg.systemLogs,
-          // A message in history is considered complete if it is marked as complete, or if it is not the active stream.
-          (msg.isAgentComplete !== false) || (idx !== chatHistory.length - 1) || !requestState.activeReader,
+          // Keep loading state visible after tab switching while the tab request is still running.
+          shouldRenderComplete,
           msg.agentLabel
         );
       } else {
@@ -3319,6 +3533,7 @@ function rebuildUIForActiveTab() {
 
   // Keep request controls (send/stop icon and disabled state) in sync after tab switches.
   updateStatusUI();
+  lastRenderedTabId = currentTabId;
 }
 
 // Handle selected text arrivals
@@ -3396,12 +3611,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
     restoreActiveTabState(currentTabId);
     
     // Sync settings for current active tab immediately to apply overrides
-    try {
-      const tab = await chrome.tabs.get(currentTabId);
-      await applyUrlSwitchingForTab(tab);
-    } catch (e) {
-      applyTemporaryModelOverrideForTab(currentTabId);
-    }
+    await syncRuntimeSettingsForTab(currentTabId);
 
     rebuildUIForActiveTab();
     saveActiveTabState();
@@ -3411,22 +3621,18 @@ async function handleNewSelection(selection, isNewInteraction = false) {
 }
 
 async function syncRuntimeSettingsForTab(tabId) {
-  // 1) Start from currently selected active model.
-  applyActiveModelToAppSettings();
+  // 1) Start from the saved default model baseline.
+  applyDefaultModelToAppSettings();
 
   if (!tabId) return;
 
   try {
     const tab = await chrome.tabs.get(tabId);
-    if (!tab || !tab.url) return;
+    // Keep runtime behavior aligned with the same tab-based switching logic used by UI.
+    // This prevents empty/internal tabs from displaying one model while sending with another.
+    await applyUrlSwitchingForTab(tab);
 
-    // 2) Overlay URL rule match if any.
-    const matchedRule = findMatchingRule(tab.url);
-    if (matchedRule) {
-      applyRuleSettings(matchedRule);
-    }
-
-    // 3) Temporary per-tab override has highest priority.
+    // 2) Temporary per-tab override has highest priority.
     applyTemporaryModelOverrideForTab(tabId);
   } catch (e) {
     console.warn("Failed to sync runtime settings for tab before send:", e);
@@ -3951,25 +4157,36 @@ async function saveChatHistory(tabId) {
     state.sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
   
-  let url = state.currentContext?.pageUrl || currentContext?.pageUrl || "";
-  let pageTitle = state.currentContext?.pageTitle || currentContext?.pageTitle || "";
+  let url = state.currentContext?.pageUrl || "";
+  let pageTitle = state.currentContext?.pageTitle || "";
   
-  if (!url) {
+  if (!url || !pageTitle) {
     try {
-      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (tabs[0]) {
-        url = tabs[0].url || "";
-        pageTitle = tabs[0].title || "";
-        console.log("[ContextLens History] Resolved URL dynamically from tabs.query:", url);
-      }
+      const tab = await chrome.tabs.get(tabId);
+      if (!url) url = tab?.url || "";
+      if (!pageTitle) pageTitle = tab?.title || "";
+      console.log("[ContextLens History] Resolved URL/title from target tab:", tabId, url);
     } catch (e) {
-      console.warn("[ContextLens History] Failed to query active tab inside saveChatHistory:", e);
+      console.warn(`[ContextLens History] Failed to query target tab (${tabId}) inside saveChatHistory:`, e);
     }
   }
   
   if (!url) {
-    console.warn("[ContextLens History] saveChatHistory aborted: URL could not be resolved.");
+    console.warn(`[ContextLens History] saveChatHistory aborted: URL could not be resolved for tab ${tabId}.`);
     return;
+  }
+
+  if (!state.currentContext) {
+    state.currentContext = {
+      text: "",
+      pageUrl: url,
+      pageTitle: pageTitle || "",
+      timestamp: Date.now(),
+      contextData: null
+    };
+  } else {
+    if (!state.currentContext.pageUrl) state.currentContext.pageUrl = url;
+    if (!state.currentContext.pageTitle) state.currentContext.pageTitle = pageTitle || "";
   }
 
   // Resolve chat history summary as the main title
@@ -5722,18 +5939,55 @@ async function evaluateUrlSwitchingForActiveTab() {
   }
 }
 
+function isInternalOrNewTabUrl(url, tab = null) {
+  if (!url) return true;
+
+  const lower = String(url).toLowerCase();
+  if (
+    lower.startsWith("chrome://") ||
+    lower.startsWith("chrome-extension://") ||
+    lower.startsWith("about:") ||
+    lower.startsWith("edge://") ||
+    lower.startsWith("devtools://")
+  ) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname || "";
+    const isGoogleHost = host === "google.com" || host === "www.google.com" || host.endsWith(".google.com");
+    const isChromeNtpPath = path === "/_/chrome/newtab" || path.startsWith("/_/chrome/newtab/");
+    if (isGoogleHost && isChromeNtpPath) {
+      return true;
+    }
+  } catch (e) {
+    // Ignore parse failures and continue with title heuristics.
+  }
+
+  const title = (tab?.title || "").trim().toLowerCase();
+  if (title === "new tab" || title === "新标签页") {
+    return true;
+  }
+
+  return false;
+}
+
 // Check tab URL and temporarily override default settings if a rule matches
 async function applyUrlSwitchingForTab(tab) {
   if (!tab || !tab.url) {
     restoreDefaultSettings();
+    if (tab?.id) applyTemporaryModelOverrideForTab(tab.id);
     return;
   }
   
   const url = tab.url;
   
-  // Ignore internal Chrome/extension pages
-  if (url.startsWith("chrome://") || url.startsWith("chrome-extension://") || url.startsWith("about:")) {
+  // Ignore browser-internal pages and New Tab variants.
+  if (isInternalOrNewTabUrl(url, tab)) {
     restoreDefaultSettings();
+    applyTemporaryModelOverrideForTab(tab.id);
     return;
   }
   
@@ -5909,13 +6163,13 @@ function applyRuleSettings(rule) {
 // Restore user default settings when leaving matching domains
 function restoreDefaultSettings() {
   console.log("[DEBUG] Restoring default settings...");
-  // Always restore from the current active model id, instead of relying on a
+  // Always restore from the saved default model id, instead of relying on a
   // potentially stale backup snapshot.
   if (defaultSettingsBackup && defaultSettingsBackup.temperature !== undefined) {
     appSettings.temperature = defaultSettingsBackup.temperature;
   }
 
-  applyActiveModelToAppSettings();
+  applyDefaultModelToAppSettings();
   
   console.log("[DEBUG] Post-restore settings:", {
     apiProvider: appSettings.apiProvider,
