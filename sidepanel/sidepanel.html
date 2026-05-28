@@ -41,7 +41,7 @@
     <!-- Chat History Popover -->
     <div id="history-popover" class="history-popover hidden">
       <div class="history-header">
-        <span class="history-title" data-i18n-text="history.title">最近对话</span>
+        <span class="history-title" data-i18n-text="history.title">最近对话历史</span>
         <button id="history-close" type="button" class="history-close">&times;</button>
       </div>
       <div id="history-list" class="history-list">
@@ -260,14 +260,21 @@
 
       <div id="chat-attachments" class="chat-attachments hidden" aria-live="polite"></div>
 
-      <div class="input-container">
-        <textarea id="chat-input" placeholder="输入后续提问... (Ctrl + Enter 发送)" data-i18n-placeholder="chat.placeholder_send" rows="1" disabled></textarea>
-        <button id="send-btn" class="send-btn" disabled title="发送" aria-label="发送消息" data-i18n-title="chat.send_title" data-i18n-aria-label="chat.send_aria">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"></line>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-          </svg>
-        </button>
+      <div class="input-history-anchor">
+        <div class="input-container">
+          <textarea id="chat-input" placeholder="输入后续提问... (Ctrl + Enter 发送)" data-i18n-placeholder="chat.placeholder_send" rows="1" disabled></textarea>
+          <button id="send-btn" class="send-btn" disabled title="发送" aria-label="发送消息" data-i18n-title="chat.send_title" data-i18n-aria-label="chat.send_aria">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div id="input-history-popover" class="input-history-popover hidden">
+          <div id="input-history-menu" class="input-history-menu">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
       </div>
     </footer>
   </div>

@@ -3280,3 +3280,111 @@ body.dark-theme .model-card-pin::after {
   padding: 32px 0;
   font-style: italic;
 }
+
+.input-history-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  border: 1px solid var(--border-light);
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  padding: 6px;
+  animation: slide-down 0.18s ease-out;
+  z-index: 30;
+}
+
+.input-history-popover.hidden {
+  display: none;
+}
+
+.input-history-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 188px;
+  overflow-y: auto;
+}
+
+.input-history-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.input-history-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.input-history-menu::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 20px;
+}
+
+.input-history-item {
+  flex: 1;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.25;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.input-history-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.input-history-item:hover {
+  border-color: rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.input-history-delete-btn {
+  width: 0;
+  min-width: 0;
+  height: 24px;
+  border: 0 solid transparent;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.06);
+  color: #dc2626;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  transition: width 0.16s ease, min-width 0.16s ease, margin-left 0.16s ease, opacity 0.12s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.input-history-row:hover .input-history-delete-btn,
+.input-history-row:focus-within .input-history-delete-btn {
+  width: 24px;
+  min-width: 24px;
+  margin-left: 4px;
+  border-width: 1px;
+  border-color: rgba(239, 68, 68, 0.25);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.input-history-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.input-history-anchor {
+  position: relative;
+}

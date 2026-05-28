@@ -70,6 +70,8 @@ let isProgrammaticChatScroll = false;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 20;
 const MAX_CLIPBOARD_IMAGE_ATTACHMENTS = 5;
 const MAX_CLIPBOARD_IMAGE_BYTES = 8 * 1024 * 1024;
+const CHAT_INPUT_HISTORY_STORAGE_KEY = "chatInputHistories";
+const MAX_CHAT_INPUT_HISTORY_ITEMS = 5;
 let tabPendingClipboardImages = {}; // tabId -> [{ id, dataUrl, mimeType, size, name }]
 let tabRequestStates = {}; // tabId -> { activeReader, activeAbortController, isRequestInProgress, userAbortRequested }
 
@@ -463,6 +465,8 @@ const historyToggle = document.getElementById("history-toggle");
 const historyPopover = document.getElementById("history-popover");
 const historyClose = document.getElementById("history-close");
 const historyList = document.getElementById("history-list");
+const inputHistoryPopover = document.getElementById("input-history-popover");
+const inputHistoryMenu = document.getElementById("input-history-menu");
 
 const SEND_BUTTON_ICON = `
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -575,6 +579,7 @@ const I18N = {
     "header.history_title": "历史记录",
     "history.title": "最近对话历史",
     "history.empty": "暂无历史对话记录",
+    "history.input_delete_title": "删除该条输入记录",
     "chat.need_api_key": "请配置 API 密钥...",
     "chat.need_model": "请先在设置中选择并保存一个模型...",
     "status.model_no_key": "未配置 API 密钥",
@@ -777,6 +782,7 @@ const I18N = {
     "header.history_title": "Chat History",
     "history.title": "Recent Chat History",
     "history.empty": "No recent chat history",
+    "history.input_delete_title": "Delete this input history item",
     "chat.need_api_key": "Please configure API key...",
     "chat.need_model": "Please select and save a model in settings first...",
     "status.model_no_key": "API key not configured",
@@ -2060,6 +2066,7 @@ function setupEventListeners() {
         const isHidden = historyPopover.classList.contains("hidden");
         // Close other popovers first
         if (modelQuickPopover) modelQuickPopover.classList.add("hidden");
+        hideInputHistoryPopover();
         
         if (isHidden) {
           renderHistoryList();
@@ -2085,6 +2092,14 @@ function setupEventListeners() {
     if (historyPopover && !historyPopover.classList.contains("hidden")) {
       if (!historyPopover.contains(e.target) && e.target !== historyToggle && !historyToggle.contains(e.target)) {
         historyPopover.classList.add("hidden");
+      }
+    }
+
+    if (inputHistoryPopover && !inputHistoryPopover.classList.contains("hidden")) {
+      const clickedInput = chatInput && (e.target === chatInput || chatInput.contains(e.target));
+      const clickedPopover = inputHistoryPopover.contains(e.target);
+      if (!clickedInput && !clickedPopover) {
+        hideInputHistoryPopover();
       }
     }
   });
@@ -2510,6 +2525,13 @@ function setupEventListeners() {
   chatInput.addEventListener("input", () => {
     chatInput.style.height = "auto";
     chatInput.style.height = (chatInput.scrollHeight) + "px";
+    if (inputHistoryPopover && !inputHistoryPopover.classList.contains("hidden")) {
+      hideInputHistoryPopover();
+    }
+  });
+
+  chatInput.addEventListener("click", () => {
+    void showInputHistoryPopover();
   });
 
   // Trigger send on Ctrl+Enter (or Cmd+Enter on macOS)
@@ -2541,6 +2563,10 @@ function setupEventListeners() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && chatImagePreviewModal && !chatImagePreviewModal.classList.contains("hidden")) {
       closeChatImagePreview();
+      return;
+    }
+    if (e.key === "Escape" && inputHistoryPopover && !inputHistoryPopover.classList.contains("hidden")) {
+      hideInputHistoryPopover();
     }
   });
 
@@ -3195,6 +3221,9 @@ function updateStatusUI() {
     chatInput.placeholder = isRequestInProgress
       ? t("chat.running_placeholder")
       : ((!currentContext || currentContext.text === "") ? t("chat.placeholder_send") : t("chat.ask_placeholder"));
+    if (chatInput.disabled) {
+      hideInputHistoryPopover();
+    }
     sendBtn.disabled = false;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
@@ -3204,6 +3233,7 @@ function updateStatusUI() {
     
     chatInput.disabled = true;
     chatInput.placeholder = hasModel ? t("chat.need_api_key") : t("chat.need_model");
+    hideInputHistoryPopover();
     sendBtn.disabled = true;
     
     if (cwdWarningBanner) cwdWarningBanner.classList.add("hidden");
@@ -3663,12 +3693,17 @@ async function handleSendMessage() {
 
   const messageTabId = currentTabId; // Capture current tab ID at the start
 
+  if (rawText) {
+    await upsertChatInputHistory(rawText);
+  }
+
   // Ensure runtime settings are consistent before any request is built/sent.
   await syncRuntimeSettingsForTab(messageTabId);
 
   // Clear input area immediately
   chatInput.value = "";
   chatInput.style.height = "auto";
+  hideInputHistoryPopover();
   if (messageTabId) {
     tabPendingClipboardImages[messageTabId] = [];
   }
@@ -4045,6 +4080,213 @@ function normalizeUrlForHistory(urlStr) {
   }
 }
 
+function normalizeInputHistoryText(text) {
+  if (typeof text !== "string") return "";
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function normalizeInputHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+
+  const text = normalizeInputHistoryText(entry.text);
+  if (!text) return null;
+
+  const heatRaw = Number(entry.heat);
+  const heat = Number.isFinite(heatRaw) && heatRaw > 0 ? Math.floor(heatRaw) : 1;
+
+  const createdRaw = Number(entry.createdAt);
+  const updatedRaw = Number(entry.lastUsedAt || entry.updatedAt || entry.createdAt);
+  const now = Date.now();
+
+  const createdAt = Number.isFinite(createdRaw) && createdRaw > 0 ? createdRaw : now;
+  const lastUsedAt = Number.isFinite(updatedRaw) && updatedRaw > 0 ? updatedRaw : createdAt;
+
+  return {
+    text,
+    heat,
+    createdAt,
+    lastUsedAt
+  };
+}
+
+function sortInputHistoryEntries(entries) {
+  return [...entries].sort((a, b) => {
+    if (b.heat !== a.heat) return b.heat - a.heat;
+    if (b.lastUsedAt !== a.lastUsedAt) return b.lastUsedAt - a.lastUsedAt;
+    return b.createdAt - a.createdAt;
+  });
+}
+
+function dedupeInputHistoryEntries(entries) {
+  const dedupedMap = new Map();
+
+  entries.forEach((entry) => {
+    const normalized = normalizeInputHistoryEntry(entry);
+    if (!normalized) return;
+
+    const key = normalizeInputHistoryText(normalized.text).toLowerCase();
+    const existing = dedupedMap.get(key);
+    if (!existing) {
+      dedupedMap.set(key, normalized);
+      return;
+    }
+
+    dedupedMap.set(key, {
+      text: normalized.lastUsedAt >= existing.lastUsedAt ? normalized.text : existing.text,
+      heat: Math.max(1, existing.heat + normalized.heat),
+      createdAt: Math.min(existing.createdAt, normalized.createdAt),
+      lastUsedAt: Math.max(existing.lastUsedAt, normalized.lastUsedAt)
+    });
+  });
+
+  return sortInputHistoryEntries([...dedupedMap.values()]).slice(0, MAX_CHAT_INPUT_HISTORY_ITEMS);
+}
+
+async function getChatInputHistories() {
+  try {
+    const result = await chrome.storage.local.get([CHAT_INPUT_HISTORY_STORAGE_KEY]);
+    const rawEntries = Array.isArray(result[CHAT_INPUT_HISTORY_STORAGE_KEY]) ? result[CHAT_INPUT_HISTORY_STORAGE_KEY] : [];
+    return dedupeInputHistoryEntries(rawEntries);
+  } catch (err) {
+    console.warn("[ContextLens InputHistory] Failed to load input history:", err);
+    return [];
+  }
+}
+
+async function setChatInputHistories(entries) {
+  const normalizedEntries = dedupeInputHistoryEntries(entries);
+  try {
+    await chrome.storage.local.set({ [CHAT_INPUT_HISTORY_STORAGE_KEY]: normalizedEntries });
+  } catch (err) {
+    console.warn("[ContextLens InputHistory] Failed to persist input history:", err);
+  }
+  return normalizedEntries;
+}
+
+async function upsertChatInputHistory(text) {
+  const normalizedText = normalizeInputHistoryText(text);
+  if (!normalizedText) return [];
+
+  const historyEntries = await getChatInputHistories();
+  const normalizedKey = normalizedText.toLowerCase();
+  const entryIndex = historyEntries.findIndex((entry) => normalizeInputHistoryText(entry.text).toLowerCase() === normalizedKey);
+  const now = Date.now();
+
+  if (entryIndex >= 0) {
+    const current = historyEntries[entryIndex];
+    historyEntries[entryIndex] = {
+      ...current,
+      text: normalizedText,
+      heat: Math.max(1, current.heat + 1),
+      lastUsedAt: now
+    };
+  } else {
+    historyEntries.unshift({
+      text: normalizedText,
+      heat: 1,
+      createdAt: now,
+      lastUsedAt: now
+    });
+  }
+
+  return setChatInputHistories(historyEntries);
+}
+
+async function removeChatInputHistory(text) {
+  const normalizedText = normalizeInputHistoryText(text);
+  if (!normalizedText) return await getChatInputHistories();
+
+  const normalizedKey = normalizedText.toLowerCase();
+  const historyEntries = await getChatInputHistories();
+  const filteredEntries = historyEntries.filter(
+    (entry) => normalizeInputHistoryText(entry.text).toLowerCase() !== normalizedKey
+  );
+
+  return setChatInputHistories(filteredEntries);
+}
+
+function hideInputHistoryPopover() {
+  if (inputHistoryPopover) {
+    inputHistoryPopover.classList.add("hidden");
+  }
+}
+
+async function fillInputFromHistory(text) {
+  const normalizedText = normalizeInputHistoryText(text);
+  if (!normalizedText) return;
+
+  if (chatInput) {
+    chatInput.value = normalizedText;
+    chatInput.style.height = "auto";
+    chatInput.style.height = `${chatInput.scrollHeight}px`;
+    if (!chatInput.disabled) {
+      chatInput.focus();
+      chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+    }
+  }
+
+  hideInputHistoryPopover();
+}
+
+async function renderInputHistoryMenu() {
+  if (!inputHistoryMenu) return false;
+
+  inputHistoryMenu.innerHTML = "";
+  const inputHistories = await getChatInputHistories();
+  if (!inputHistories.length) {
+    return false;
+  }
+
+  inputHistories.forEach((entry) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "input-history-row";
+
+    const itemBtn = document.createElement("button");
+    itemBtn.type = "button";
+    itemBtn.className = "input-history-item";
+    itemBtn.textContent = entry.text;
+    itemBtn.title = entry.text;
+    itemBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      fillInputFromHistory(entry.text);
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "input-history-delete-btn";
+    deleteBtn.textContent = "×";
+    deleteBtn.title = t("history.input_delete_title");
+    deleteBtn.setAttribute("aria-label", t("history.input_delete_title"));
+    deleteBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const nextEntries = await removeChatInputHistory(entry.text);
+      if (!nextEntries.length) {
+        hideInputHistoryPopover();
+        return;
+      }
+      await renderInputHistoryMenu();
+    });
+
+    rowEl.appendChild(itemBtn);
+    rowEl.appendChild(deleteBtn);
+    inputHistoryMenu.appendChild(rowEl);
+  });
+
+  return true;
+}
+
+async function showInputHistoryPopover() {
+  if (!chatInput || chatInput.disabled || !inputHistoryPopover) return;
+
+  const hasItems = await renderInputHistoryMenu();
+  if (!hasItems) {
+    hideInputHistoryPopover();
+    return;
+  }
+
+  inputHistoryPopover.classList.remove("hidden");
+}
+
 // Compile a clean history without any failed turns, maintaining strict role alternation
 function getFilteredChatHistory(history) {
   const filtered = [];
@@ -4294,7 +4536,7 @@ function restoreChatHistory(session) {
 async function renderHistoryList() {
   if (!historyList) return;
   historyList.innerHTML = "";
-  
+
   try {
     // Resolve current tab URL
     let currentUrl = currentContext?.pageUrl || "";
