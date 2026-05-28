@@ -1072,6 +1072,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     try {
+      // If a chat request is actively running/streaming for this tab, do not disrupt the UI progress!
+      if (isRequestRunningForTab(tabId)) {
+        return;
+      }
       const currentWindow = await chrome.windows.getCurrent();
       if (tab.active && tab.windowId === currentWindow.id) {
         const isUrlChanged = !!changeInfo.url;
@@ -3230,21 +3234,6 @@ function rebuildUIForActiveTab() {
       includeSelectionImagesToggle.checked = false;
     }
     includeSelectionImagesChecked = false;
-  }
-
-  // Update Welcome Screen Page Context Connection Status Indicator
-  const welcomeContextStatus = document.getElementById("welcome-context-status");
-  const welcomeContextText = document.getElementById("welcome-context-text");
-  if (welcomeContextStatus && welcomeContextText) {
-    if (currentContext && currentContext.pageUrl) {
-      welcomeContextStatus.classList.remove("hidden");
-      welcomeContextText.textContent = uiLanguage === "en"
-        ? `🌐 Auto-connected: ${currentContext.pageTitle || 'Webpage'}`
-        : `🌐 已自动载入当前网页: ${currentContext.pageTitle || '未命名网页'}`;
-      welcomeContextStatus.setAttribute("title", currentContext.pageUrl);
-    } else {
-      welcomeContextStatus.classList.add("hidden");
-    }
   }
 
   // 2. Re-render Chat History
