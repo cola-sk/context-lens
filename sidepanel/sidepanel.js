@@ -238,14 +238,12 @@ function isSameSelectionSnapshot(prevSelection, nextSelection) {
   return sameText && samePage && sameTitle && prevSerializedContext === nextSerializedContext;
 }
 
-// System prompt to feed the AI — dynamically adapted based on whether the user has a text selection
-function getSystemPrompt(context) {
-  const hasSnippet = context && typeof context.text === "string" && context.text.trim() !== "";
+// System prompt to feed the AI — simple identity, context is injected into the first user message
+function getSystemPrompt() {
   return `You are ContextLens, a precise and helpful AI coding and research assistant.
-You are helping the user ${hasSnippet ? 'understand a snippet of text they selected on a website' : 'explore and analyze the webpage they are viewing'}.
-Provide explanations, code debugging, or answers in direct response to their ${hasSnippet ? 'selected text' : 'page context'} and any follow-up questions they have.
 Be concise, accurate, and focus directly on the context provided. Use markdown formatting for code blocks, lists, and bold text.`;
 }
+
 
 function getContextImages(contextData, maxImages = 5) {
   if (!contextData || !Array.isArray(contextData.images)) return [];
@@ -4361,7 +4359,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       
       // Inject System Instruction as standard model instructions or a system prompt
       // For simplicity and compatibility, we inject system instructions in the first prompt
-      let geminiSystem = getSystemPrompt(currentContext);
+      let geminiSystem = getSystemPrompt();
       // Only append context block if it hasn't already been embedded into chatHistory[0] via fullPrompt
       if (currentContext && !cleanHistory[0]?._contextEmbedded) {
         const hasSnippet = typeof currentContext.text === "string" && currentContext.text.trim() !== "";
@@ -4531,7 +4529,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Prepare system context
       // Only inject selected text into system prompt if it hasn't already been
       // embedded into chatHistory[0] as a fullPrompt (avoid duplicate context)
-      let systemContent = getSystemPrompt(currentContext);
+      let systemContent = getSystemPrompt();
       if (currentContext && !chatHistory[0]?._contextEmbedded) {
         const hasSnippet = typeof currentContext.text === "string" && currentContext.text.trim() !== "";
         if (hasSnippet) {
@@ -4665,7 +4663,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       // Build Claude prompt
       // Only inject selected text into system prompt if it hasn't already been
       // embedded into chatHistory[0] as a fullPrompt (avoid duplicate context)
-      let systemContent = getSystemPrompt(currentContext);
+      let systemContent = getSystemPrompt();
       if (currentContext && !chatHistory[0]?._contextEmbedded) {
         const hasSnippet = typeof currentContext.text === "string" && currentContext.text.trim() !== "";
         if (hasSnippet) {
