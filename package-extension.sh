@@ -20,7 +20,17 @@ zip -r "$OUTPUT" . \
   -x "package-extension.sh" \
   -x "CHROMEWEBSTORE.md" \
   -x "README.md" \
-  -x "generate_icons.py" \
+  -x "README_ZH.md" \
+  -x "PRODUCTHUNT.md" \
+  -x "task.md" \
+  -x "walkthrough.md" \
+  -x "*.py" \
+  -x "referrence/*" \
+  -x "referrence" \
+  -x ".claude/*" \
+  -x ".claude" \
+  -x "bridge/*" \
+  -x "bridge" \
   -x "implementation_plan.md" \
   -x "implementation_plan_zh.md" \
   -x ".DS_Store" \
