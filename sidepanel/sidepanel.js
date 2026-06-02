@@ -1581,7 +1581,17 @@ function applyModelChoiceToAppSettings(choice) {
     appSettings.apiKey = "";
     appSettings.apiUrl = DEFAULT_BRIDGE_URL;
     appSettings.modelName = choice.model;
-    appSettings.cwd = provCfg.cwd || "";
+    
+    // Check if there is a matching URL rule for the current page and use its cwd if available
+    let effectiveCwd = provCfg.cwd || "";
+    const activeUrl = currentContext?.pageUrl || "";
+    if (activeUrl) {
+      const matchedRule = findMatchingRule(activeUrl);
+      if (matchedRule && matchedRule.cwd && matchedRule.cwd.trim()) {
+        effectiveCwd = matchedRule.cwd.trim();
+      }
+    }
+    appSettings.cwd = effectiveCwd;
     appSettings.claudePath = provCfg.claudePath || choice.executablePath || "";
 
     if (appSettings.providers[choice.provider]) {
@@ -2355,16 +2365,13 @@ function setupEventListeners() {
     if (provider === "custom") {
       if (modalUrlGroup) modalUrlGroup.classList.remove("hidden");
       if (modalKeyGroup) modalKeyGroup.classList.remove("hidden");
-      // Show sync button for custom providers
-      const modalSyncBtn = document.getElementById("modal-sync-models-btn");
-      if (modalSyncBtn) modalSyncBtn.classList.remove("hidden");
     } else {
       if (modalUrlGroup) modalUrlGroup.classList.add("hidden");
       if (modalKeyGroup) modalKeyGroup.classList.remove("hidden");
-      // Hide sync button for non-custom providers
-      const modalSyncBtn = document.getElementById("modal-sync-models-btn");
-      if (modalSyncBtn) modalSyncBtn.classList.add("hidden");
     }
+    // Show sync button for all active API providers (custom, gemini, openai, claude)
+    const modalSyncBtn = document.getElementById("modal-sync-models-btn");
+    if (modalSyncBtn) modalSyncBtn.classList.remove("hidden");
   }
 
   function openAddApiModelModal() {
@@ -3003,16 +3010,27 @@ async function handleFetchCustomModels() {
     handleFetchCustomModels._statusTimer = null;
   }
   
-  // Read from modal form fields, not global stubs
+  // Read from modal form fields
   const modalApiUrl = document.getElementById("modal-api-url");
   const modalApiKey = document.getElementById("modal-api-key");
   
   const urlVal = modalApiUrl ? modalApiUrl.value.trim() : "";
   const keyVal = modalApiKey ? modalApiKey.value.trim() : "";
   
-  if (!urlVal) {
+  const activeChip = document.querySelector("#modal-provider-grid .provider-chip.active");
+  const provider = activeChip ? activeChip.dataset.provider : "custom";
+  
+  if (provider === "custom" && !urlVal) {
     if (modalStatus) {
       modalStatus.textContent = t("modal.input_base_url_first");
+      modalStatus.className = "settings-status error";
+    }
+    return;
+  }
+  
+  if (provider !== "custom" && !keyVal) {
+    if (modalStatus) {
+      modalStatus.textContent = t("modal.validation_key") || "Please input API Key first";
       modalStatus.className = "settings-status error";
     }
     return;
@@ -3029,34 +3047,59 @@ async function handleFetchCustomModels() {
     modalStatus.className = "settings-status";
   }
   
-  // Clean URL
-  let baseUrl = urlVal.endsWith("/") ? urlVal.slice(0, -1) : urlVal;
-  
-  // Define endpoints to try
-  const endpoints = [
-    `${baseUrl}/models`,
-    `${baseUrl}/v1/models`
-  ];
-  
-  // If it looks like Ollama native port, insert tags endpoint at higher priority
-  if (baseUrl.includes("11434") && !baseUrl.includes("/api") && !baseUrl.includes("/v1")) {
-    endpoints.unshift(`${baseUrl}/api/tags`);
-  } else {
-    endpoints.push(`${baseUrl}/api/tags`);
-  }
-  
   let success = false;
   let fetchedList = [];
-  let lastError = "Could not fetch models from any standard endpoint.";
+  let lastError = "Could not fetch models from the API endpoint.";
   
   const headers = { "Accept": "application/json" };
-  if (keyVal) {
-    headers["Authorization"] = `Bearer ${keyVal}`;
+  
+  // Define endpoints to try based on provider
+  let endpoints = [];
+  
+  if (provider === "gemini") {
+    let baseUrl = urlVal || "https://generativelanguage.googleapis.com";
+    if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    endpoints = [`${baseUrl}/v1beta/models?key=${keyVal}`];
+  } else if (provider === "openai") {
+    let baseUrl = urlVal || "https://api.openai.com";
+    if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    endpoints = [
+      `${baseUrl}/v1/models`,
+      `${baseUrl}/models`
+    ];
+    if (keyVal) {
+      headers["Authorization"] = `Bearer ${keyVal}`;
+    }
+  } else if (provider === "claude") {
+    let baseUrl = urlVal || "https://api.anthropic.com";
+    if (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    endpoints = [`${baseUrl}/v1/models`];
+    if (keyVal) {
+      headers["x-api-key"] = keyVal;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["dangerously-allow-browser"] = "true";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+  } else {
+    // Custom
+    let baseUrl = urlVal.endsWith("/") ? urlVal.slice(0, -1) : urlVal;
+    endpoints = [
+      `${baseUrl}/models`,
+      `${baseUrl}/v1/models`
+    ];
+    if (baseUrl.includes("11434") && !baseUrl.includes("/api") && !baseUrl.includes("/v1")) {
+      endpoints.unshift(`${baseUrl}/api/tags`);
+    } else {
+      endpoints.push(`${baseUrl}/api/tags`);
+    }
+    if (keyVal) {
+      headers["Authorization"] = `Bearer ${keyVal}`;
+    }
   }
   
   for (const targetUrl of endpoints) {
     try {
-      console.log(`🔮 [ContextLens] Attempting to fetch models from: ${targetUrl}`);
+      console.log(`🔮 [ContextLens] Attempting to fetch models for ${provider} from: ${targetUrl}`);
       const res = await fetch(targetUrl, {
         method: "GET",
         headers: headers,
@@ -3065,10 +3108,10 @@ async function handleFetchCustomModels() {
       
       if (res.ok) {
         const json = await res.json();
-        fetchedList = parseFetchedModels(json);
+        fetchedList = parseFetchedModels(json, provider);
         if (fetchedList.length > 0) {
           success = true;
-          console.log(`🔮 [ContextLens] Successfully synced ${fetchedList.length} models from ${targetUrl}`);
+          console.log(`🔮 [ContextLens] Successfully synced ${fetchedList.length} models for ${provider} from ${targetUrl}`);
           break;
         }
       } else {
@@ -3089,9 +3132,11 @@ async function handleFetchCustomModels() {
   }
   
   if (success && fetchedList.length > 0) {
-    customModels = fetchedList;
-    customManualMode = false;
-    addedProviderModels.custom = fetchedList.map(m => ({ value: m, label: m }));
+    if (provider === "custom") {
+      customModels = fetchedList;
+      customManualMode = false;
+    }
+    addedProviderModels[provider] = fetchedList.map(m => ({ value: m, label: m }));
     
     // Save caches immediately to storage
     await chrome.storage.local.set({ 
@@ -3108,7 +3153,7 @@ async function handleFetchCustomModels() {
       modelToSelect = appSettings.modelName;
     }
     
-    renderModelSelection("custom", modelToSelect);
+    renderModelSelection(provider, modelToSelect);
     
     // Display fetched models in the modal select for compact selection
     const modalModelNameInput = document.getElementById("modal-model-name");
@@ -3122,7 +3167,7 @@ async function handleFetchCustomModels() {
       manualOption.value = "__manual__";
       manualOption.textContent = t("modal.manual_input");
       modalModelSelect.appendChild(manualOption);
-
+ 
       fetchedList.forEach(modelName => {
         const opt = document.createElement("option");
         opt.value = modelName;
@@ -3137,7 +3182,7 @@ async function handleFetchCustomModels() {
       // Switch visibility
       modalModelNameInput.classList.add("hidden");
       modalModelSelect.classList.remove("hidden");
-
+ 
       // Add listener if not already added
       if (!modalModelSelect.dataset.listenerAdded) {
         modalModelSelect.addEventListener("change", (e) => {
@@ -3145,7 +3190,6 @@ async function handleFetchCustomModels() {
             modalModelSelect.classList.add("hidden");
             modalModelNameInput.classList.remove("hidden");
             modalModelNameInput.focus();
-            // Reset to current value or empty
           } else {
             modalModelNameInput.value = e.target.value;
           }
@@ -3173,7 +3217,7 @@ async function handleFetchCustomModels() {
 }
 
 // Parse model list from standard formats
-function parseFetchedModels(responseJson) {
+function parseFetchedModels(responseJson, provider = "custom") {
   let list = [];
   if (!responseJson) return list;
   
@@ -3181,13 +3225,37 @@ function parseFetchedModels(responseJson) {
   if (Array.isArray(responseJson.data)) {
     list = responseJson.data.map(m => typeof m === 'object' ? (m.id || m.name) : m).filter(Boolean);
   }
-  // Case 2: Ollama native { models: [ { name: "model-name" }, ... ] }
+  // Case 2: Ollama native/Gemini { models: [ { name: "model-name" }, ... ] }
   else if (Array.isArray(responseJson.models)) {
-    list = responseJson.models.map(m => typeof m === 'object' ? (m.name || m.model || m.id) : m).filter(Boolean);
+    list = responseJson.models.map(m => {
+      if (typeof m === 'object') {
+        let name = m.name || m.model || m.id;
+        if (provider === "gemini" && name && name.startsWith("models/")) {
+          name = name.substring(7);
+        }
+        return name;
+      }
+      return m;
+    }).filter(Boolean);
   }
   // Case 3: Flat array responses
   else if (Array.isArray(responseJson)) {
     list = responseJson.map(m => typeof m === 'object' ? (m.id || m.name) : m).filter(Boolean);
+  }
+  
+  // Special filtering for Gemini to keep only chat/text generation models
+  if (provider === "gemini" && Array.isArray(responseJson.models)) {
+    list = responseJson.models
+      .filter(m => {
+        const methods = m.supportedGenerationMethods || [];
+        return methods.includes("streamGenerateContent") || methods.includes("generateContent");
+      })
+      .map(m => {
+        let name = m.name || "";
+        if (name.startsWith("models/")) name = name.substring(7);
+        return name;
+      })
+      .filter(Boolean);
   }
   
   // Clean and deduplicate
@@ -3739,7 +3807,7 @@ async function handleSendMessage() {
   }
 
   const matchedRuleForRequest = _pageUrl ? findMatchingRule(_pageUrl) : null;
-  const matchedRuleCwd = matchedRuleForRequest && matchedRuleForRequest.provider === appSettings.apiProvider
+  const matchedRuleCwd = matchedRuleForRequest
     ? (matchedRuleForRequest.cwd || "").trim()
     : "";
   const effectiveCwd = _isAgentProvider && matchedRuleCwd ? matchedRuleCwd : "";
@@ -4895,75 +4963,86 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
 
       // Keep loader dots in bubbleContent until the first content chunk is received and rendered
 
+      let braceCount = 0;
+      let inString = false;
+      let escapeNext = false;
+      let startIdx = -1;
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
         
-        // Gemini returns streaming elements inside a large JSON array-like structure.
-        // Chunks are formatted as: [ { "candidates": ... }, { "candidates": ... } ]
-        // We parse each JSON object block using a regex or simple scanning.
-        
-        // Find clean JSON blocks in stream buffer
-        let boundaryIdx;
-        while ((boundaryIdx = buffer.indexOf("}\n,")) !== -1 || (boundaryIdx = buffer.indexOf("}\r\n,")) !== -1) {
-          const splitLen = buffer.includes("\r\n") ? 3 : 2;
-          const chunkStr = buffer.slice(0, boundaryIdx + 1).trim();
-          buffer = buffer.slice(boundaryIdx + splitLen);
+        // Robust brace-matching parser for streaming JSON array
+        let scanIdx = 0;
+        while (scanIdx < buffer.length) {
+          const char = buffer[scanIdx];
           
-          // Clean up brackets for correct parsing
-          let cleanStr = chunkStr;
-          if (cleanStr.startsWith("[")) cleanStr = cleanStr.substring(1);
-          if (cleanStr.endsWith("]")) cleanStr = cleanStr.substring(0, cleanStr.length - 1);
-          
-          try {
-            const parsed = JSON.parse(cleanStr);
-            const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (textChunk) {
-              streamedText += textChunk;
-              assistantMsgObj.content = streamedText;
-              scheduleStreamStatePersist();
-              if (targetTabId === currentTabId) {
-                let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
-                if (!activeBubble) activeBubble = bubbleContent;
-                if (activeBubble) {
-                  renderAssistantMessage(activeBubble, streamedText, null, false, null);
+          if (escapeNext) {
+            escapeNext = false;
+            scanIdx++;
+            continue;
+          }
+
+          if (char === '\\') {
+            escapeNext = true;
+            scanIdx++;
+            continue;
+          }
+
+          if (char === '"') {
+            inString = !inString;
+            scanIdx++;
+            continue;
+          }
+
+          if (!inString) {
+            if (char === '{') {
+              if (braceCount === 0) {
+                startIdx = scanIdx;
+              }
+              braceCount++;
+            } else if (char === '}') {
+              braceCount--;
+              if (braceCount === 0 && startIdx !== -1) {
+                const jsonStr = buffer.slice(startIdx, scanIdx + 1);
+                try {
+                  const parsed = JSON.parse(jsonStr);
+                  const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                  if (textChunk) {
+                    streamedText += textChunk;
+                    assistantMsgObj.content = streamedText;
+                    scheduleStreamStatePersist();
+                    if (targetTabId === currentTabId) {
+                      let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+                      if (!activeBubble) activeBubble = bubbleContent;
+                      if (activeBubble) {
+                        renderAssistantMessage(activeBubble, streamedText, null, false, null);
+                      }
+                      scrollToBottom();
+                    }
+                  }
+                } catch (e) {
+                  console.warn("Failed to parse streamed JSON chunk:", e);
                 }
-                scrollToBottom();
+                buffer = buffer.slice(scanIdx + 1);
+                scanIdx = -1; // Reset scan index for the sliced buffer
+                startIdx = -1;
               }
             }
-          } catch (e) {
-            // Partial JSON, skip to keep buffer
           }
+          scanIdx++;
         }
       }
 
-      // Handle final remaining buffer in stream
-      if (buffer.trim()) {
-        let cleanStr = buffer.trim();
-        if (cleanStr.startsWith("[")) cleanStr = cleanStr.substring(1);
-        if (cleanStr.endsWith("]")) cleanStr = cleanStr.substring(0, cleanStr.length - 1);
-        if (cleanStr.endsWith("}")) {
-          try {
-            const parsed = JSON.parse(cleanStr);
-            const textChunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (textChunk) {
-              streamedText += textChunk;
-              assistantMsgObj.content = streamedText;
-              scheduleStreamStatePersist();
-              if (targetTabId === currentTabId) {
-                let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
-                if (!activeBubble) activeBubble = bubbleContent;
-                if (activeBubble) {
-                  activeBubble.innerHTML = formatMarkdown(streamedText);
-                  activeBubble.querySelectorAll(".think-block[open] .think-content").forEach(el => {
-                    el.scrollTop = el.scrollHeight;
-                  });
-                }
-              }
-            }
-          } catch(e) {}
+      // Final rendering update to ensure full markdown is perfectly formatted
+      if (streamedText && targetTabId === currentTabId) {
+        let activeBubble = messagesList.querySelector(".message.assistant:last-child .message-bubble");
+        if (!activeBubble) activeBubble = bubbleContent;
+        if (activeBubble) {
+          renderAssistantMessage(activeBubble, streamedText, null, true, null);
+          scrollToBottom();
         }
       }
 
@@ -5170,7 +5249,8 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
-          "dangerously-allow-browser": "true"
+          "dangerously-allow-browser": "true",
+          "anthropic-dangerous-direct-browser-access": "true"
         },
         body: JSON.stringify({
           model: modelName,
