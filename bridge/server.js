@@ -128,7 +128,15 @@ function findExecutable(name) {
 
 function getExecutableVersion(execPath, versionFlag = '--version') {
   try {
-    const out = execSync(`"${execPath}" ${versionFlag}`, { encoding: 'utf8', timeout: 3000, stdio: [] }).trim();
+    const out = execSync(`"${execPath}" ${versionFlag}`, {
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: [],
+      env: {
+        ...process.env,
+        GEMINI_CLI_TRUST_WORKSPACE: 'true'
+      }
+    }).trim();
     // Extract first line that looks like a version number
     const match = out.match(/[\d]+\.[\d]+\.?[\d]*/);
     return match ? match[0] : out.split('\n')[0].trim();
@@ -327,10 +335,11 @@ const server = http.createServer((req, res) => {
             promptWithAttachments
           ];
         } else if (agentId === 'gemini-agent') {
-          // Gemini CLI: gemini --output-format=stream-json --yolo <prompt>
+          // Gemini CLI: gemini --output-format=stream-json --yolo --skip-trust <prompt>
           spawnArgs = [
             '--output-format', 'stream-json',
             '--yolo',
+            '--skip-trust',
             promptWithAttachments
           ];
         } else {
@@ -355,7 +364,8 @@ const server = http.createServer((req, res) => {
             env: {
               ...process.env,
               FORCE_COLOR: '0',
-              TERM: 'dumb' // disable ANSI escape colors/interactive characters
+              TERM: 'dumb', // disable ANSI escape colors/interactive characters
+              GEMINI_CLI_TRUST_WORKSPACE: 'true'
             }
           }
         );
