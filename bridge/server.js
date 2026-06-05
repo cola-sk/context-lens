@@ -134,7 +134,8 @@ function getExecutableVersion(execPath, versionFlag = '--version') {
       stdio: [],
       env: {
         ...process.env,
-        GEMINI_CLI_TRUST_WORKSPACE: 'true'
+        GEMINI_CLI_TRUST_WORKSPACE: 'true',
+        DISABLE_AUTOUPDATER: '1'
       }
     }).trim();
     // Extract first line that looks like a version number
@@ -168,7 +169,7 @@ function detectLocalAgents() {
   // 2. OpenAI Codex CLI
   const codexPath = findExecutable('codex');
   if (codexPath) {
-    const version = getExecutableVersion(codexPath);
+    const version = getExecutableVersion(codexPath, '-c check_for_update_on_startup=false --version');
     results.push({
       id: 'codex-agent',
       label: 'Codex CLI',
@@ -331,6 +332,7 @@ const server = http.createServer((req, res) => {
             'exec',
             '--json',
             '--dangerously-bypass-approvals-and-sandbox',
+            '-c', 'check_for_update_on_startup=false',
             '-C', runCwd,
             promptWithAttachments
           ];
@@ -365,7 +367,8 @@ const server = http.createServer((req, res) => {
               ...process.env,
               FORCE_COLOR: '0',
               TERM: 'dumb', // disable ANSI escape colors/interactive characters
-              GEMINI_CLI_TRUST_WORKSPACE: 'true'
+              GEMINI_CLI_TRUST_WORKSPACE: 'true',
+              DISABLE_AUTOUPDATER: '1'
             }
           }
         );

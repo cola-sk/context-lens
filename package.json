@@ -1,6 +1,6 @@
 {
   "name": "context-lens",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "ContextLens - Chrome Extension",
   "scripts": {
     "bridge": "node bridge/server.js"
