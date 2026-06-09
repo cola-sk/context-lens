@@ -161,7 +161,7 @@ content.js 在选区周围提取以下结构化信息：
 | Claude Code | `claude -p <prompt> --output-format=stream-json` | Stream JSON (assistant / tool_use / result) |
 | Codex CLI | `codex exec --json -C <dir> <prompt>` | JSON (agent_message / function_call / function_result) |
 | Gemini CLI | `gemini --output-format=stream-json <prompt>` | Stream JSON (content / reasoning / tool_call) |
-| Copilot CLI | `copilot --output-format json --stream on -p <prompt>` | JSON stream (agent_message / tool events) |
+| Copilot CLI | `copilot --output-format json --stream on -p <prompt>` | JSON stream (assistant.message_* / tool.execution_start / tool.execution_complete) |
 
 ### URL 规则引擎
 
@@ -177,8 +177,8 @@ content.js 在选区周围提取以下结构化信息：
 
 - `assistant / agent_message / content` → 渲染为文本
 - `thinking / reasoning` → 渲染为可折叠思考过程
-- `tool_use / tool_call / function_call` → 渲染为系统日志（含参数）
-- `tool_result / function_result / command_execution` → 渲染为系统日志（含输出）
+- `tool_use / tool_call / function_call / tool.execution_start` → 渲染为系统日志（含参数）
+- `tool_result / function_result / command_execution / tool.execution_complete` → 渲染为系统日志（含输出）
 - `error` → 渲染为错误提示
 
 ---

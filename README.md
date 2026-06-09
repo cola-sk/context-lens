@@ -168,7 +168,7 @@ ContextLens/
 | Claude Code | `claude -p <prompt> --output-format=stream-json` | Stream JSON (`assistant` / `tool_use` / `result`) |
 | Codex CLI | `codex exec --json -C <dir> <prompt>` | JSON (`agent_message` / `function_call` / `function_result`) |
 | Gemini CLI | `gemini --output-format=stream-json <prompt>` | Stream JSON (`content` / `reasoning` / `tool_call`) |
-| Copilot CLI | `copilot --output-format json --stream on -p <prompt>` | JSON stream (`agent_message` / tool events) |
+| Copilot CLI | `copilot --output-format json --stream on -p <prompt>` | JSON stream (`assistant.message_*` / `tool.execution_start` / `tool.execution_complete`) |
 
 ### URL rule engine
 
@@ -184,8 +184,8 @@ All API endpoints use SSE streaming. Local agents also parse these event types:
 
 - `assistant / agent_message / content` -> rendered as text
 - `thinking / reasoning` -> rendered as collapsible reasoning blocks
-- `tool_use / tool_call / function_call` -> rendered as system logs (with params)
-- `tool_result / function_result / command_execution` -> rendered as system logs (with output)
+- `tool_use / tool_call / function_call / tool.execution_start` -> rendered as system logs (with params)
+- `tool_result / function_result / command_execution / tool.execution_complete` -> rendered as system logs (with output)
 - `error` -> rendered as error alerts
 
 ---
