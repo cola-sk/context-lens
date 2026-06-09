@@ -8,16 +8,16 @@ let appSettings = {
   modelName: "gemini-2.5-flash",
   temperature: 0.7,
   cwd: "",
-  claudePath: "",
+  commandPath: "",
   providers: {
     gemini: { apiKey: "", modelName: "gemini-2.5-flash" },
     openai: { apiKey: "", modelName: "gpt-4o-mini" },
     claude: { apiKey: "", modelName: "claude-3-5-sonnet-latest" },
     custom: { apiKey: "", apiUrl: "", modelName: "" },
-    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" },
-    "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "codex" },
-    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "gemini" },
-    "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "copilot" }
+    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "claude-code" },
+    "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "codex" },
+    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "gemini" },
+    "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "copilot" }
   }
 };
 
@@ -666,13 +666,13 @@ const I18N = {
     "agent.result_title": "执行结果",
     "common.collapse": "▼ 折叠",
     "common.expand": "▶ 展开",
-    "think.summary_running": "💭 思考中...",
-    "think.summary_done": "💭 思考过程",
-    "log.thinking_summary": "💭 思考过程",
-    "log.tool_call_summary": "🔧 调用工具",
+    "think.summary_running": "思考中...",
+    "think.summary_done": "思考过程",
+    "log.thinking_summary": "思考过程",
+    "log.tool_call_summary": "调用工具",
     "log.tool_params_label": "参数",
-    "log.tool_result_summary": "➡️ 工具执行结果",
-    "log.tool_error_summary": "❌ 工具执行失败",
+    "log.tool_result_summary": "工具执行结果",
+    "log.tool_error_summary": "工具执行失败",
     "rules.provider_local_agent": "本地 Agent",
     "rules.default_gemini_api": "Google Gemini 官方 API",
     "rules.default_openai_api": "OpenAI 官方 API",
@@ -871,13 +871,13 @@ const I18N = {
     "agent.result_title": "Result",
     "common.collapse": "▼ Collapse",
     "common.expand": "▶ Expand",
-    "think.summary_running": "💭 Thinking...",
-    "think.summary_done": "💭 Thinking Process",
-    "log.thinking_summary": "💭 Thinking Process",
-    "log.tool_call_summary": "🔧 Tool Call",
+    "think.summary_running": "Thinking...",
+    "think.summary_done": "Thinking Process",
+    "log.thinking_summary": "Thinking Process",
+    "log.tool_call_summary": "Tool Call",
     "log.tool_params_label": "Parameters",
-    "log.tool_result_summary": "➡️ Tool Result",
-    "log.tool_error_summary": "❌ Tool Failed",
+    "log.tool_result_summary": "Tool Result",
+    "log.tool_error_summary": "Tool Failed",
     "rules.provider_local_agent": "Local Agent",
     "rules.default_gemini_api": "Google Gemini Official API",
     "rules.default_openai_api": "OpenAI Official API",
@@ -949,8 +949,8 @@ const apiKey = { value: "" }; // stub
 const apiUrl = { value: "" }; // stub
 const cwdGroup = document.getElementById("cwd-group");
 const apiCwd = document.getElementById("api-cwd");
-const claudePathGroup = null; // removed from UI
-const claudePath = { value: "" }; // stub
+const commandPathGroup = null; // removed from UI
+const commandPath = { value: "" }; // stub
 const keyGroup = null;
 const apiKeyLabel = null;
 const toggleKeyVisibility = null;
@@ -1242,7 +1242,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Load settings from chrome.storage.local
 async function loadSettings() {
-  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "defaultModelId", "tabStates", "uiLanguage", "contextMenuModelIds"]);
+  const result = await chrome.storage.local.get(["apiProvider", "apiKey", "apiUrl", "modelName", "temperature", "customModels", "cwd", "commandPath", "claudePath", "providers", "urlSwitchRules", "addedProviderModels", "configuredApiModels", "activeModelId", "defaultModelId", "tabStates", "uiLanguage", "contextMenuModelIds"]);
   
   tabStates = result.tabStates || {};
   uiLanguage = result.uiLanguage === "en" ? "en" : "zh";
@@ -1256,28 +1256,34 @@ async function loadSettings() {
     openai: { apiKey: "", modelName: "gpt-4o-mini" },
     claude: { apiKey: "", modelName: "claude-3-5-sonnet-latest" },
     custom: { apiKey: "", apiUrl: "", modelName: "" },
-    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" },
-    "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "codex" },
-    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "gemini" },
-    "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "copilot" }
+    "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "claude-code" },
+    "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "codex" },
+    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "gemini" },
+    "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "copilot" }
   };
   
   appSettings.providers = {};
   for (const [provId, defConfig] of Object.entries(defaultProviders)) {
     const savedConfig = (result.providers && result.providers[provId]) ? result.providers[provId] : {};
-    appSettings.providers[provId] = { ...defConfig, ...savedConfig };
+    const normalizedConfig = { ...savedConfig };
+    if (normalizedConfig.claudePath && !normalizedConfig.commandPath) {
+      normalizedConfig.commandPath = normalizedConfig.claudePath;
+    }
+    delete normalizedConfig.claudePath;
+    appSettings.providers[provId] = { ...defConfig, ...normalizedConfig };
   }
 
   // Backward compatibility migration:
   // If root variables exist in result, copy them to the corresponding provider inside providers cache
-  if (result.apiKey || result.apiUrl || result.modelName || result.cwd || result.claudePath) {
+  if (result.apiKey || result.apiUrl || result.modelName || result.cwd || result.commandPath || result.claudePath) {
     const prov = result.apiProvider || "gemini";
+    const storedCommandPath = result.commandPath || result.claudePath || "";
     if (appSettings.providers[prov]) {
       if (result.apiKey && !appSettings.providers[prov].apiKey) appSettings.providers[prov].apiKey = result.apiKey;
       if (result.apiUrl && !appSettings.providers[prov].apiUrl) appSettings.providers[prov].apiUrl = result.apiUrl;
       if (result.modelName && !appSettings.providers[prov].modelName) appSettings.providers[prov].modelName = result.modelName;
       if (result.cwd && !appSettings.providers[prov].cwd) appSettings.providers[prov].cwd = result.cwd;
-      if (result.claudePath && !appSettings.providers[prov].claudePath) appSettings.providers[prov].claudePath = result.claudePath;
+      if (storedCommandPath && !appSettings.providers[prov].commandPath) appSettings.providers[prov].commandPath = storedCommandPath;
     }
   }
 
@@ -1385,7 +1391,7 @@ async function loadSettings() {
     apiUrl: appSettings.apiUrl,
     modelName: appSettings.modelName,
     cwd: "",
-    claudePath: appSettings.claudePath,
+    commandPath: appSettings.commandPath,
     providers: JSON.parse(JSON.stringify(appSettings.providers))
   };
 
@@ -1411,7 +1417,7 @@ function refreshLocalAgentsAsync() {
       apiUrl: appSettings.apiUrl,
       modelName: appSettings.modelName,
       cwd: "",
-      claudePath: appSettings.claudePath,
+      commandPath: appSettings.commandPath,
       providers: JSON.parse(JSON.stringify(appSettings.providers))
     };
 
@@ -1576,7 +1582,7 @@ function applyModelChoiceToAppSettings(choice) {
     appSettings.apiUrl = choice.apiUrl || "";
     appSettings.modelName = choice.model || "";
     appSettings.cwd = "";
-    appSettings.claudePath = "";
+    appSettings.commandPath = "";
 
     if (appSettings.providers[choice.provider]) {
       appSettings.providers[choice.provider].apiKey = choice.apiKey || "";
@@ -1604,13 +1610,13 @@ function applyModelChoiceToAppSettings(choice) {
       }
     }
     appSettings.cwd = effectiveCwd;
-    appSettings.claudePath = provCfg.claudePath || choice.executablePath || "";
+    appSettings.commandPath = provCfg.commandPath || provCfg.claudePath || choice.executablePath || "";
 
     if (appSettings.providers[choice.provider]) {
       appSettings.providers[choice.provider].modelName = choice.model;
       appSettings.providers[choice.provider].apiUrl = DEFAULT_BRIDGE_URL;
       appSettings.providers[choice.provider].cwd = appSettings.cwd;
-      appSettings.providers[choice.provider].claudePath = appSettings.claudePath;
+      appSettings.providers[choice.provider].commandPath = appSettings.commandPath;
     }
   }
 
@@ -1832,7 +1838,7 @@ function applyDefaultModelToAppSettings() {
   appSettings.apiUrl = "";
   appSettings.modelName = "";
   appSettings.cwd = "";
-  appSettings.claudePath = "";
+  appSettings.commandPath = "";
   updateStatusUI();
   renderAvailableModelCards();
 }
@@ -1857,7 +1863,7 @@ function applyActiveModelToAppSettings() {
   appSettings.apiUrl = "";
   appSettings.modelName = "";
   appSettings.cwd = "";
-  appSettings.claudePath = "";
+  appSettings.commandPath = "";
   updateStatusUI();
   renderAvailableModelCards();
 }
@@ -2266,7 +2272,7 @@ function setupEventListeners() {
         apiUrl: appSettings.apiUrl,
         modelName: appSettings.modelName,
         cwd: "",
-        claudePath: appSettings.claudePath,
+        commandPath: appSettings.commandPath,
         providers: JSON.parse(JSON.stringify(appSettings.providers))
       };
 
@@ -5360,7 +5366,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
         url,
         apiProvider,
         effectiveCwd: effectiveCwd || "(none)",
-        claudePath: (appSettings.claudePath || "").substring(0, 20) + "..."
+        commandPath: (appSettings.commandPath || "").substring(0, 20) + "..."
       });
 
       let promptToSend = promptText;
@@ -5382,7 +5388,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
         body: JSON.stringify({
           prompt: promptToSend,
           cwd: effectiveCwd,
-          claudePath: appSettings.claudePath || "",
+          commandPath: appSettings.commandPath || "",
           agentId: apiProvider,
           attachments: clipboardImageAttachments.map((att, idx) => ({
             name: `clipboard-image-${idx + 1}`,
@@ -6154,8 +6160,8 @@ function formatMarkdown(text) {
     escapedContent = escapedContent.replace(/\n/g, "<br>");
 
     const thinkHTML = block.open
-      ? `<details class="think-block" open><summary>${t("think.summary_running")}</summary><div class="think-content">${escapedContent}</div></details>`
-      : `<details class="think-block"><summary>${t("think.summary_done")}</summary><div class="think-content">${escapedContent}</div></details>`;
+      ? `<details class="think-block think-block--thinking" open><summary>${agentLogSummary("thinking", t("think.summary_running"))}</summary><div class="think-content">${escapedContent}</div></details>`
+      : `<details class="think-block think-block--thinking"><summary>${agentLogSummary("thinking", t("think.summary_done"))}</summary><div class="think-content">${escapedContent}</div></details>`;
 
     html = html.replace(`<div class="think-ph-wrapper">${THINK_PH(i)}</div>`, thinkHTML);
     // Also handle inline think placeholders
@@ -6237,6 +6243,23 @@ function applyInlineMarkdown(text) {
 }
 
 
+function agentLogIcon(kind) {
+  const icons = {
+    thinking: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4.2 12.6c.5.38.8.95.8 1.57V18h6.8v-.83c0-.62.3-1.19.8-1.57A7 7 0 0 0 12 3Z"></path><path d="M9 21h6"></path><path d="M10 18h4"></path></svg>`,
+    tool: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.3 5.3L4 17v3h3l5.4-5.4a4 4 0 0 0 5.3-5.3l-2.8 2.8-3-3 2.8-2.8Z"></path></svg>`,
+    result: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>`,
+    error: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>`
+  };
+
+  return `<span class="agent-log-icon agent-log-icon--${kind}">${icons[kind] || icons.tool}</span>`;
+}
+
+function agentLogSummary(kind, label, meta = "") {
+  const metaHtml = meta ? `<span class="agent-log-meta">${meta}</span>` : "";
+  return `<span class="agent-log-summary">${agentLogIcon(kind)}<span class="agent-log-label">${label}</span>${metaHtml}</span>`;
+}
+
+
 
 // Format local agent system logs into collapsible UI elements
 function formatAgentLogs(text) {
@@ -6251,7 +6274,7 @@ function formatAgentLogs(text) {
   ];
   thinkingPatterns.forEach((pattern) => {
     html = html.replace(pattern, (match, content) => {
-      return `<details class="think-block"><summary>${t("log.thinking_summary")}</summary><div class="think-content">${content}</div></details>`;
+      return `<details class="think-block think-block--thinking"><summary>${agentLogSummary("thinking", t("log.thinking_summary"))}</summary><div class="think-content">${content}</div></details>`;
     });
   });
 
@@ -6261,7 +6284,7 @@ function formatAgentLogs(text) {
   ];
   toolCallPatterns.forEach((pattern) => {
     html = html.replace(pattern, (match, toolName, content) => {
-      return `<details class="think-block"><summary>${t("log.tool_call_summary")}: ${toolName}</summary><div class="think-content">${t("log.tool_params_label")}:\n${content}</div></details>`;
+      return `<details class="think-block think-block--tool"><summary>${agentLogSummary("tool", t("log.tool_call_summary"), toolName)}</summary><div class="think-content">${t("log.tool_params_label")}:\n${content}</div></details>`;
     });
   });
 
@@ -6271,7 +6294,7 @@ function formatAgentLogs(text) {
   ];
   toolResultPatterns.forEach((pattern) => {
     html = html.replace(pattern, (match, content) => {
-      return `<details class="think-block"><summary>${t("log.tool_result_summary")}</summary><div class="think-content">${content}</div></details>`;
+      return `<details class="think-block think-block--result"><summary>${agentLogSummary("result", t("log.tool_result_summary"))}</summary><div class="think-content">${content}</div></details>`;
     });
   });
 
@@ -6282,7 +6305,7 @@ function formatAgentLogs(text) {
   ];
   toolErrorPatterns.forEach((pattern) => {
     html = html.replace(pattern, (match, content) => {
-      return `<details class="think-block"><summary style="color:#ef4444">${t("log.tool_error_summary")}</summary><div class="think-content">${content}</div></details>`;
+      return `<details class="think-block think-block--error"><summary>${agentLogSummary("error", t("log.tool_error_summary"))}</summary><div class="think-content">${content}</div></details>`;
     });
   });
 
@@ -6459,7 +6482,7 @@ function applyRuleSettings(rule) {
       apiUrl: appSettings.apiUrl,
       modelName: appSettings.modelName,
       cwd: appSettings.cwd,
-      claudePath: appSettings.claudePath,
+      commandPath: appSettings.commandPath,
       providers: JSON.parse(JSON.stringify(appSettings.providers))
     };
   }
@@ -6474,7 +6497,7 @@ function applyRuleSettings(rule) {
       appSettings.modelName = config.model;
       appSettings.apiKey = config.apiKey || "";
       appSettings.apiUrl = config.apiUrl || "";
-      appSettings.claudePath = "";
+      appSettings.commandPath = "";
       
       // Update provider map too
       if (!appSettings.providers[config.provider]) appSettings.providers[config.provider] = {};

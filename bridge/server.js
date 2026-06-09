@@ -83,7 +83,7 @@ const server = http.createServer((req, res) => {
 
     req.on('end', () => {
       try {
-        const { prompt, cwd, claudePath, agentId, attachments } = JSON.parse(body);
+        const { prompt, cwd, commandPath, claudePath, agentId, attachments } = JSON.parse(body);
 
         if (!prompt) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -107,6 +107,11 @@ const server = http.createServer((req, res) => {
           agentType = 'copilot';
         }
 
+        const resolvedCommandPath =
+          (typeof commandPath === 'string' && commandPath.trim()) ||
+          (typeof claudePath === 'string' && claudePath.trim()) ||
+          undefined;
+
         let finished = false;
         const toolMap = new Map();
 
@@ -124,7 +129,7 @@ const server = http.createServer((req, res) => {
           agent: agentType,
           prompt,
           cwd,
-          commandPath: (typeof claudePath === 'string' && claudePath.trim()) ? claudePath : undefined,
+          commandPath: resolvedCommandPath,
           attachments,
           onEvent: (event) => {
             if (finished) return;
