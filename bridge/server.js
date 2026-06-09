@@ -105,6 +105,7 @@ const server = http.createServer((req, res) => {
         }
 
         let finished = false;
+        const toolMap = new Map();
 
         const sendSystemLog = (text) => {
           if (finished) return;
@@ -129,6 +130,10 @@ const server = http.createServer((req, res) => {
             } else if (event.type === 'thinking') {
               sendSystemLog(`💭 Thinking Process:\n${event.text}\n\n`);
             } else if (event.type === 'tool_use') {
+              if (event.toolUseId) {
+                const toolNameOrCmd = event.name === 'command_execution' ? (event.input.command || event.name) : event.name;
+                toolMap.set(event.toolUseId, toolNameOrCmd);
+              }
               const inputStr = typeof event.input === 'object'
                 ? JSON.stringify(event.input, null, 2)
                 : String(event.input);
@@ -139,14 +144,29 @@ const server = http.createServer((req, res) => {
               const statusText = isError ? 'Tool Failed' : 'Tool Result';
               let displayContent = event.content || '';
               if (typeof displayContent === 'object') displayContent = JSON.stringify(displayContent);
+
+              const toolName = event.toolUseId ? toolMap.get(event.toolUseId) : '';
+              let toolDesc = '';
+              if (toolName) {
+                toolDesc = toolName.includes(' ') ? `[Command: ${toolName}]\n` : `[Tool: ${toolName}]\n`;
+              }
+
               if (typeof displayContent === 'string' && displayContent.length > 500) {
                 displayContent = displayContent.substring(0, 500) + '\n... [Truncated, total ' + displayContent.length + ' chars]';
               }
-              sendSystemLog(`${statusIcon} ${statusText}:\n${displayContent}\n\n`);
+              sendSystemLog(`${statusIcon} ${statusText}:\n${toolDesc}${displayContent}\n\n`);
             } else if (event.type === 'system') {
               sendSystemLog(event.text);
             } else if (event.type === 'error') {
               sendSystemLog(`❌ Error: ${event.text}\n`);
+            } else if (event.type === 'json') {
+              const json = event.payload || {};
+              const role = String(json.role || json.author || '').toLowerCase();
+              const isAssistantRole = role === 'assistant' || role === 'model' || role === 'ai';
+              if (isAssistantRole) {
+                const text = json.content || json.value || json.text || json.message || '';
+                if (text && typeof text === 'string') sendText(text);
+              }
             }
           },
           onStderr: (line) => {
