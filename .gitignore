@@ -1,3 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build and packaged outputs
+dist/
+build/
 *.zip
-.DS*
-.claude
+
+# Environment and local config
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+.DS_Store?
+
+# Editor and agent local state
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.claude/
