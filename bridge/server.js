@@ -9,7 +9,7 @@ const PORT = 3100;
 function detectLocalAgents() {
   const agents = detectCliAgents();
   const idMap = {
-    'claude-code': 'claude-agent',
+    'claude': 'claude-agent',
     'codex': 'codex-agent',
     'gemini': 'gemini-agent'
   };
