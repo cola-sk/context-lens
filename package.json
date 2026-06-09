@@ -5,6 +5,9 @@
   "scripts": {
     "bridge": "node bridge/server.js"
   },
+  "dependencies": {
+    "@sking7/agent-cli-unified": "file:../agent-cli-unified"
+  },
   "author": "Antigravity",
   "license": "MIT"
 }
