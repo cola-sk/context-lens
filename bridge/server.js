@@ -11,7 +11,8 @@ function detectLocalAgents() {
   const idMap = {
     'claude': 'claude-agent',
     'codex': 'codex-agent',
-    'gemini': 'gemini-agent'
+    'gemini': 'gemini-agent',
+    'copilot': 'copilot-agent'
   };
   return agents
     .filter(a => idMap[a.id])
@@ -102,6 +103,8 @@ const server = http.createServer((req, res) => {
           agentType = 'codex';
         } else if (agentId === 'gemini-agent') {
           agentType = 'gemini';
+        } else if (agentId === 'copilot-agent') {
+          agentType = 'copilot';
         }
 
         let finished = false;

@@ -16,7 +16,8 @@ let appSettings = {
     custom: { apiKey: "", apiUrl: "", modelName: "" },
     "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" },
     "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "codex" },
-    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "gemini" }
+    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "gemini" },
+    "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "copilot" }
   }
 };
 
@@ -56,6 +57,7 @@ let addedProviderModels = {
   "claude-agent": [],
   "codex-agent": [],
   "gemini-agent": [],
+  "copilot-agent": [],
   custom: []
 };
 
@@ -649,6 +651,7 @@ const I18N = {
     "chat.local_agent_claude": "本地 Claude Code CLI",
     "chat.local_agent_codex": "本地 Codex CLI",
     "chat.local_agent_gemini": "本地 Gemini CLI",
+    "chat.local_agent_copilot": "本地 Copilot CLI",
     "chat.initializing_agent": "正在启动并初始化{agent}...",
     "chat.request_failed": "⚠️ API 请求发送失败: {error}",
     "chat.network_error": "网络错误。",
@@ -677,6 +680,7 @@ const I18N = {
     "rules.default_claude_agent": "Claude Code 本地 Agent",
     "rules.default_codex_agent": "Codex CLI 本地 Agent",
     "rules.default_gemini_agent": "Gemini CLI 本地 Agent",
+    "rules.default_copilot_agent": "Copilot CLI 本地 Agent",
     "header.new_chat_title": "新建对话",
     "context.page_only_loaded": "💡 已导入当前网页上下文（标题及地址）"
   },
@@ -852,6 +856,7 @@ const I18N = {
     "chat.local_agent_claude": "Local Claude Code CLI",
     "chat.local_agent_codex": "Local Codex CLI",
     "chat.local_agent_gemini": "Local Gemini CLI",
+    "chat.local_agent_copilot": "Local Copilot CLI",
     "chat.initializing_agent": "Initializing {agent}...",
     "chat.request_failed": "⚠️ API request failed: {error}",
     "chat.network_error": "Network error.",
@@ -880,6 +885,7 @@ const I18N = {
     "rules.default_claude_agent": "Claude Code Local Agent",
     "rules.default_codex_agent": "Codex CLI Local Agent",
     "rules.default_gemini_agent": "Gemini CLI Local Agent",
+    "rules.default_copilot_agent": "Copilot CLI Local Agent",
     "header.new_chat_title": "New Chat",
     "context.page_only_loaded": "💡 Imported current page context (title & URL)"
   }
@@ -976,6 +982,9 @@ const providerModels = {
   ],
   "gemini-agent": [
     { value: "gemini", label: "Gemini CLI Agent" }
+  ],
+  "copilot-agent": [
+    { value: "copilot", label: "Copilot CLI Agent" }
   ]
 };
 
@@ -1249,7 +1258,8 @@ async function loadSettings() {
     custom: { apiKey: "", apiUrl: "", modelName: "" },
     "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "claude-code" },
     "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "codex" },
-    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "gemini" }
+    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "gemini" },
+    "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", claudePath: "", modelName: "copilot" }
   };
   
   appSettings.providers = {};
@@ -1281,10 +1291,11 @@ async function loadSettings() {
     "claude-agent": [],
     "codex-agent": [],
     "gemini-agent": [],
+    "copilot-agent": [],
     custom: []
   };
 
-  const provKeys = ["gemini", "openai", "claude", "claude-agent", "codex-agent", "gemini-agent", "custom"];
+  const provKeys = ["gemini", "openai", "claude", "claude-agent", "codex-agent", "gemini-agent", "copilot-agent", "custom"];
   provKeys.forEach(k => {
     if (!addedProviderModels[k]) addedProviderModels[k] = [];
   });
@@ -1482,7 +1493,8 @@ function resolveModelChoiceById(modelId) {
     const defaultLabelMap = {
       "claude-agent": t("chat.local_agent_claude"),
       "codex-agent": t("chat.local_agent_codex"),
-      "gemini-agent": t("chat.local_agent_gemini")
+      "gemini-agent": t("chat.local_agent_gemini"),
+      "copilot-agent": t("chat.local_agent_copilot")
     };
     return {
       id: modelId,
@@ -1860,7 +1872,7 @@ function renderAvailableModelCards() {
 
   // Local agents from bridge
   for (const agent of detectedLocalAgents) {
-    const icons = { "claude-agent": "🤖", "codex-agent": "⚡", "gemini-agent": "🌟" };
+    const icons = { "claude-agent": "🤖", "codex-agent": "⚡", "gemini-agent": "🌟", "copilot-agent": "⌨️" };
     cards.push({
       id: agent.id,
       type: "local",
@@ -5395,6 +5407,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       else if (apiProvider === "claude-agent") agentLabel = t("chat.local_agent_claude");
       else if (apiProvider === "codex-agent") agentLabel = t("chat.local_agent_codex");
       else if (apiProvider === "gemini-agent") agentLabel = t("chat.local_agent_gemini");
+      else if (apiProvider === "copilot-agent") agentLabel = t("chat.local_agent_copilot");
 
       systemLogsText = `${t("chat.initializing_agent", { agent: agentLabel })}\n`;
 
@@ -6887,7 +6900,8 @@ function renderConfiguredModelsForRule(selectedModelId = null) {
       { label: t("rules.default_claude_api"), value: "claude:default", provider: "claude", model: "claude-3-5-sonnet-20241022" },
       { label: t("rules.default_claude_agent"), value: "claude-agent:default", provider: "claude-agent", model: "claude-code" },
       { label: t("rules.default_codex_agent"), value: "codex-agent:default", provider: "codex-agent", model: "codex" },
-      { label: t("rules.default_gemini_agent"), value: "gemini-agent:default", provider: "gemini-agent", model: "gemini" }
+      { label: t("rules.default_gemini_agent"), value: "gemini-agent:default", provider: "gemini-agent", model: "gemini" },
+      { label: t("rules.default_copilot_agent"), value: "copilot-agent:default", provider: "copilot-agent", model: "copilot" }
     ];
     defaults.forEach(item => {
       const opt = document.createElement("option");

@@ -2,7 +2,7 @@
 
 ContextLens 是一款 Chrome 浏览器插件，让您在任意网页上划词选中文本，即时在侧边栏中与 AI 大模型交互。插件自动抓取选中区域的深层 DOM 上下文（完整代码块、表格、上下段落），以及可选的整篇网页正文，帮助 AI 提供精准的深度解答。
 
-同时支持 **本地 CLI 编程代理**（Claude Code、Codex CLI、Gemini CLI），通过 Bridge Server 将选中 UI 文本直接发送给本地代理，实现"选中 → 定位代码 → 自动修改"的开发闭环。
+同时支持 **本地 CLI 编程代理**（Claude Code、Codex CLI、Gemini CLI、Copilot CLI），通过 Bridge Server 将选中 UI 文本直接发送给本地代理，实现"选中 → 定位代码 → 自动修改"的开发闭环。
 
 ---
 
@@ -17,7 +17,7 @@ ContextLens 是一款 Chrome 浏览器插件，让您在任意网页上划词选
 - **自定义图钉即时 Tooltip 提示**：使用纯 CSS 伪元素实现无延迟、气泡缩放弹出（Scale-Pop）、避开滚动条裁剪的即时 Tooltip；置顶后图钉 icon 自动过渡为实心填充状态。
 - **精准右键图像相交/包裹过滤**：重构右键元素图片提取算法。只有当右键直接选中 `<img>`、`<picture>` 或 `<figure>` 等图片元素时才激活图片解析，右键点击普通文本或大容器时不再误抓取背景装饰图，消除无选区右键误勾选图片解析的视觉噪音。
 - **多模型 API 支持**：直连 Google Gemini、OpenAI、Anthropic Claude 官方 API，以及兼容 OpenAI 规范的自定义 / 本地 API（Ollama、LM Studio、vLLM 等）。
-- **本地编程代理**：通过 Bridge Server 对接 Claude Code、Codex CLI、Gemini CLI，选中 UI 文本即可让本地代理定位源码并执行修改。
+- **本地编程代理**：通过 Bridge Server 对接 Claude Code、Codex CLI、Gemini CLI、Copilot CLI，选中 UI 文本即可让本地代理定位源码并执行修改。
 - **URL 自动切换规则**：基于 glob 通配符的域名规则引擎，自动为不同网站切换模型和代理工作目录。
 - **规则弹窗编辑**：新增/编辑 URL 自动切换规则统一使用弹窗表单，不再在规则列表底部展开编辑区，交互更聚焦。
 - **标签页隔离**：每个标签页独立维护聊天历史、选区上下文和模型状态，互不干扰。
@@ -42,7 +42,7 @@ ContextLens 是一款 Chrome 浏览器插件，让您在任意网页上划词选
 
 ### 2. 启动 Bridge Server（可选，本地代理功能需要）
 
-如需使用 Claude Code / Codex CLI / Gemini CLI 本地代理功能：
+如需使用 Claude Code / Codex CLI / Gemini CLI / Copilot CLI 本地代理功能：
 
 ```bash
 cd bridge
@@ -58,7 +58,7 @@ Bridge Server 默认运行在 `http://localhost:3100`，插件会自动探测本
 
 1. 点击侧边栏顶部的 **设置 (齿轮)** 按钮。
 2. 在 **Basic Config** 标签页中管理模型：
-   - **本地代理**：自动检测已安装的 CLI 代理（Claude Code、Codex、Gemini），显示可用状态和版本。点击 **Refresh Agents** 重新探测。
+   - **本地代理**：自动检测已安装的 CLI 代理（Claude Code、Codex、Gemini、Copilot），显示可用状态和版本。点击 **Refresh Agents** 重新探测。
    - **API 模型**：点击模型卡片列表中的 **+ Add API Model**，选择 Provider（Gemini / OpenAI / Claude / Custom），输入 API Key 和模型名称。Custom API 支持 Sync 按钮一键拉取可用模型列表。
    - **表单行为**：在模型弹窗中切换 Provider 时，会清空并重置当前 Provider 不适用的字段；同步成功提示会在短时间后自动收起。
 3. 在 **Auto-Switch Rules** 标签页中配置 URL 规则：
@@ -161,6 +161,7 @@ content.js 在选区周围提取以下结构化信息：
 | Claude Code | `claude -p <prompt> --output-format=stream-json` | Stream JSON (assistant / tool_use / result) |
 | Codex CLI | `codex exec --json -C <dir> <prompt>` | JSON (agent_message / function_call / function_result) |
 | Gemini CLI | `gemini --output-format=stream-json <prompt>` | Stream JSON (content / reasoning / tool_call) |
+| Copilot CLI | `copilot --output-format json --stream on -p <prompt>` | JSON stream (agent_message / tool events) |
 
 ### URL 规则引擎
 
