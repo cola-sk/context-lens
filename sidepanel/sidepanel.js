@@ -71,7 +71,7 @@ const AUTO_SCROLL_BOTTOM_THRESHOLD = 20;
 const MAX_CLIPBOARD_IMAGE_ATTACHMENTS = 5;
 const MAX_CLIPBOARD_IMAGE_BYTES = 8 * 1024 * 1024;
 const CHAT_INPUT_HISTORY_STORAGE_KEY = "chatInputHistories";
-const MAX_CHAT_INPUT_HISTORY_ITEMS = 5;
+const MAX_CHAT_INPUT_HISTORY_ITEMS = 10;
 let tabPendingClipboardImages = {}; // tabId -> [{ id, dataUrl, mimeType, size, name }]
 let tabRequestStates = {}; // tabId -> { activeReader, activeAbortController, isRequestInProgress, userAbortRequested }
 
@@ -4185,6 +4185,37 @@ function sortInputHistoryEntries(entries) {
   });
 }
 
+function pruneInputHistoryEntries(entries) {
+  const pruned = [...entries];
+
+  while (pruned.length > MAX_CHAT_INPUT_HISTORY_ITEMS) {
+    let removeIndex = -1;
+
+    for (let i = 0; i < pruned.length; i++) {
+      const entry = pruned[i];
+      if (entry.heat !== 1) continue;
+      if (
+        removeIndex === -1 ||
+        entry.lastUsedAt < pruned[removeIndex].lastUsedAt ||
+        (entry.lastUsedAt === pruned[removeIndex].lastUsedAt && entry.createdAt < pruned[removeIndex].createdAt)
+      ) {
+        removeIndex = i;
+      }
+    }
+
+    if (removeIndex === -1) {
+      const sorted = sortInputHistoryEntries(pruned);
+      const lowestPriority = sorted[sorted.length - 1];
+      removeIndex = pruned.findIndex((entry) => entry === lowestPriority);
+    }
+
+    if (removeIndex === -1) break;
+    pruned.splice(removeIndex, 1);
+  }
+
+  return pruned;
+}
+
 function dedupeInputHistoryEntries(entries) {
   const dedupedMap = new Map();
 
@@ -4207,7 +4238,7 @@ function dedupeInputHistoryEntries(entries) {
     });
   });
 
-  return sortInputHistoryEntries([...dedupedMap.values()]).slice(0, MAX_CHAT_INPUT_HISTORY_ITEMS);
+  return sortInputHistoryEntries(pruneInputHistoryEntries([...dedupedMap.values()]));
 }
 
 async function getChatInputHistories() {
