@@ -1676,17 +1676,9 @@ function applyModelChoiceToAppSettings(choice) {
     appSettings.apiUrl = DEFAULT_BRIDGE_URL;
     appSettings.modelName = choice.model;
     
-    // Check if there is a matching URL rule for the current page and use its cwd if available.
-    // Keep this as runtime state only; stale provider cwd values must not become global defaults.
-    let effectiveCwd = "";
-    const activeUrl = currentContext?.pageUrl || "";
-    if (activeUrl) {
-      const matchedRule = findMatchingRule(activeUrl);
-      if (matchedRule && normalizeLocalAgentId(matchedRule.provider) === choice.provider && matchedRule.cwd && matchedRule.cwd.trim()) {
-        effectiveCwd = matchedRule.cwd.trim();
-      }
-    }
-    appSettings.cwd = effectiveCwd;
+    // Keep workspace as runtime-only state from current URL rule.
+    const activeUrl = getActiveTabPageUrl();
+    appSettings.cwd = getMatchedAgentWorkspaceForUrl(activeUrl);
     appSettings.commandPath = sanitizeLocalAgentCommandPath(
       choice.provider,
       provCfg.commandPath || provCfg.claudePath || choice.executablePath || ""
@@ -1724,6 +1716,25 @@ function getDomainPatternFromUrl(url) {
   } catch (e) {
     return "*";
   }
+}
+
+function getActiveTabPageUrl() {
+  if (currentTabId) {
+    const state = getTabState(currentTabId);
+    const stateUrl = state.currentContext?.pageUrl || "";
+    if (stateUrl) return stateUrl;
+  }
+  return currentContext?.pageUrl || "";
+}
+
+function getMatchedAgentWorkspaceForUrl(url) {
+  if (!url) return "";
+  const rule = findMatchingRule(url);
+  if (!rule) return "";
+  const cwd = (rule.cwd || "").trim();
+  const provider = normalizeLocalAgentId(rule.provider || "");
+  if (!cwd || !provider.endsWith("-agent")) return "";
+  return cwd;
 }
 
 function openRuleEditorWithPreset(preset) {
@@ -1853,12 +1864,9 @@ async function openModelQuickPopover() {
 
     ruleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const matchedRule = findMatchingRule(tab.url || "");
-      const cwdDefault = choice.provider.endsWith("-agent") &&
-        matchedRule &&
-        normalizeLocalAgentId(matchedRule.provider) === choice.provider
-          ? (matchedRule.cwd || "")
-          : "";
+      const cwdDefault = choice.provider.endsWith("-agent")
+        ? getMatchedAgentWorkspaceForUrl(tab.url || "")
+        : "";
 
       openRuleEditorWithPreset({
         name: `${domain} · ${choice.label}`,
@@ -3426,23 +3434,18 @@ function updateStatusUI() {
   const workspaceStatusPill = document.getElementById("workspace-status-pill");
   const connectedWorkspaceName = document.getElementById("connected-workspace-name");
 
-  if (currentTabId) {
-    const state = getTabState(currentTabId);
-    const tabUrl = state.currentContext?.pageUrl || currentContext?.pageUrl || "";
-    if (tabUrl) {
-      const rule = findMatchingRule(tabUrl);
-      if (rule && normalizeLocalAgentId(rule.provider) === appSettings.apiProvider && rule.cwd && rule.cwd.trim()) {
-        matchedCwd = rule.cwd.trim();
-      }
-    }
-  }
+  const tabUrl = getActiveTabPageUrl();
+  if (tabUrl) matchedCwd = getMatchedAgentWorkspaceForUrl(tabUrl);
 
   if (workspaceStatusPill && connectedWorkspaceName) {
-    if (isReadyForChat && matchedCwd) {
+    const effectiveCwd = isReadyForChat && isLocalAgent
+      ? (matchedCwd || (appSettings.cwd || "").trim())
+      : "";
+    if (effectiveCwd) {
       // Shorten displayed CWD path for sleeker look
-      const displayPath = matchedCwd.length > 30 ? "..." + matchedCwd.slice(-27) : matchedCwd;
+      const displayPath = effectiveCwd.length > 30 ? "..." + effectiveCwd.slice(-27) : effectiveCwd;
       connectedWorkspaceName.textContent = displayPath;
-      workspaceStatusPill.setAttribute("title", `本地工作区路径: ${matchedCwd}`);
+      workspaceStatusPill.setAttribute("title", `本地工作区路径: ${effectiveCwd}`);
       workspaceStatusPill.classList.remove("hidden");
     } else {
       workspaceStatusPill.classList.add("hidden");
@@ -3915,11 +3918,8 @@ async function handleSendMessage() {
     } catch {}
   }
 
-  const matchedRuleForRequest = _pageUrl ? findMatchingRule(_pageUrl) : null;
-  const matchedRuleCwd = matchedRuleForRequest && normalizeLocalAgentId(matchedRuleForRequest.provider) === appSettings.apiProvider
-    ? (matchedRuleForRequest.cwd || "").trim()
-    : "";
-  const effectiveCwd = _isAgentProvider ? matchedRuleCwd : "";
+  const matchedRuleCwd = _pageUrl ? getMatchedAgentWorkspaceForUrl(_pageUrl) : "";
+  const effectiveCwd = _isAgentProvider ? (matchedRuleCwd || (appSettings.cwd || "").trim()) : "";
 
   // Silently ensure basic page context is populated if the user has no selection and currentContext is null.
   // This handles edge cases: user cleared context, or ensureBasicPageContext hasn't resolved yet.
