@@ -11,7 +11,7 @@ This document is your complete playbook for launching **ContextLens** on Product
 
 Product Hunt (PH) is highly populated by developers, designers, AI enthusiasts, and early adopters. ContextLens stands out due to three major factors:
 
-1. **Unique Developer Workflow (The Bridge Server)**: Connecting browser selection to local CLI agents (`Claude Code`, `Gemini CLI`, `Codex`) via a local bridge server to read and write code is an absolute game-changer. Most browser AI tools are just simple ChatGPT wrappers; this is an actual local developer tool loop.
+1. **Unique Developer Workflow (The Bridge Server)**: Connecting browser selection to local CLI agents (`Claude Code`, `Antigravity CLI`, `Codex`) via a local bridge server to read and write code is an absolute game-changer. Most browser AI tools are just simple ChatGPT wrappers; this is an actual local developer tool loop.
 2. **Premium Design (Glassmorphism & Micro-animations)**: The custom light glassmorphism UI, smooth transitions, and breathing connection lights are highly polished. Visually striking interfaces get up to **3x more engagement** on Product Hunt.
 3. **Privacy-First Architecture**: Completely local storage (`chrome.storage.local`), direct peer-to-peer HTTPS API requests, and local agent execution appeal heavily to safety-conscious power users.
 
@@ -43,7 +43,7 @@ Use these English-written assets to fill out the Product Hunt submission form.
 * **Tagline (Max 60 chars)**: 
   > Sleek AI sidebar connecting web text to local dev agents & APIs
 * **Description (Max 260 chars)**:
-  > Select any web text to chat instantly with Gemini, OpenAI, Claude, or local Ollama. Seamlessly triggers local CLI agents (Claude Code, Gemini CLI) via a local bridge to write or modify source code in real time. Sleek glassmorphism UI & privacy-first.
+  > Select any web text to chat instantly with Gemini, OpenAI, Claude, or local Ollama. Seamlessly triggers local CLI agents (Claude Code, Antigravity CLI) via a local bridge to write or modify source code in real time. Sleek glassmorphism UI & privacy-first.
 * **Topics/Tags**: `Developer Tools`, `Artificial Intelligence`, `Productivity`, `User Experience`.
 * **Downloads / Links**:
   - **Chrome Web Store Link**: `[Your official CWS URL here]`
@@ -60,12 +60,12 @@ Hi Product Hunt community! 👋
 I'm the creator of ContextLens, and I'm super excited to share it with you all today! 🚀
 
 ### 💡 Why I built ContextLens
-As a developer, I found myself constantly copying text, terminal logs, UI strings, or code snippets from the browser, opening separate chat tabs, or manually typing them into CLI tools like Claude Code or Gemini CLI to fix local code. The constant window switching felt redundant and broke my flow.
+As a developer, I found myself constantly copying text, terminal logs, UI strings, or code snippets from the browser, opening separate chat tabs, or manually typing them into CLI tools like Claude Code or Antigravity CLI to fix local code. The constant window switching felt redundant and broke my flow.
 
 I wanted a frictionless, beautiful, and privacy-first gateway that bridges what I see in the browser to both advanced cloud APIs and my local coding environment.
 
 ### ✨ What makes ContextLens different?
-1. **Local Agent Bridge 🔌**: This is the core magic. Via a local lightweight Node.js Bridge Server, you can highlight a UI element or bug on a web page, and directly command local CLI agents (Claude Code, Codex, Gemini CLI) to locate and rewrite the source code in your local directory!
+1. **Local Agent Bridge 🔌**: This is the core magic. Via a local lightweight Node.js Bridge Server, you can highlight a UI element or bug on a web page, and directly command local CLI agents (Claude Code, Codex, Antigravity CLI) to locate and rewrite the source code in your local directory!
 2. **Smart DOM Context Extraction 🧠**: It doesn't just copy raw text. It automatically detects codeblocks (with language tags), formats HTML `<table>` elements into neat Markdown tables, captures heading hierarchies, and constructs the CSS breadcrumb path.
 3. **Stunning Glassmorphism Design 💎**: Built with a premium, light-glassmorphism aesthetic that feels native to modern operating systems, complete with smooth animations, syntax highlighting, and breathing connection lights.
 4. **100% Privacy-First 🔒**: No telemetry, no intermediate servers. Your API keys and chat histories are stored securely in your browser's local sandbox (`chrome.storage.local`). Direct point-to-point connections to your chosen AI providers.

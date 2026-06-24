@@ -36,7 +36,7 @@ ContextLens 是一款为深度阅读、学术研究及日常浏览量身定制�
    ✓ OpenAI API（gpt-4o, gpt-4o-mini, o1-mini 等）
    ✓ Anthropic Claude API（claude-3-5-sonnet-latest, claude-3-5-haiku-latest 等）
    ✓ 本地自定义 API（兼容 OpenAI 规范的 Ollama, LM Studio, vLLM 等）
-   ✓ 本地开发者 AI Agent（Claude Code, Codex Agent, Gemini Agent 等，通过本地 Node.js 网桥自动启动）
+   ✓ 本地开发者 AI Agent（Claude Code, Codex Agent, Antigravity Agent 等，通过本地 Node.js 网桥自动启动）
 
 3. 智能本地模型同步：在本地 / 自定义 API 模式下，点击「🔄 Sync」按钮，插件会自动轮询本地端点（如 Ollama）并瞬间将枯燥的手动输入转化为流畅的下拉列表选择，一键切换本地模型（如 llama3, qwen2.5 等）。如需特殊模型，支持退回至纯文本手动输入。
 
@@ -197,4 +197,4 @@ ContextLens（以下简称“我们”或“本插件”）非常重视您的个
 
 | 版本号 | 发布日期 | 更新内容 | 审核状态 |
 | :--- | :--- | :--- | :--- |
-| **1.0.0** | 2026-05-22 | - 首次公开发布版本<br>- 支持划词自动展示 Lens 悬浮按钮及右键菜单拉起侧边栏<br>- 支持 Gemini API, OpenAI, Claude API 及自定义 / 本地大模型 (Ollama, LM Studio 等)<br>- 支持本地开发者 AI Agent (Claude Code, Codex Agent, Gemini Agent 等)<br>- 支持本地模型智能同步：点击「🔄 Sync」一键拉取本地模型列表<br>- 支持附加完整网页正文、代码上下文及 URL 引用功能<br>- 支持 Ctrl + Enter 快捷发送，Enter 回车折行输入<br>- 支持请求进行中红色方块中断按钮（可立即停止）<br>- 支持 URL 自动切换规则弹窗新增 / 编辑<br>- 支持侧边栏中文 / English 双语切换<br>- 拥有精致的毛玻璃浅色设计界面<br>- 完全隐私本地化：数据不经任何中转服务器 | 🚨 准备提交审核 |
+| **1.0.0** | 2026-05-22 | - 首次公开发布版本<br>- 支持划词自动展示 Lens 悬浮按钮及右键菜单拉起侧边栏<br>- 支持 Gemini API, OpenAI, Claude API 及自定义 / 本地大模型 (Ollama, LM Studio 等)<br>- 支持本地开发者 AI Agent (Claude Code, Codex Agent, Antigravity Agent 等)<br>- 支持本地模型智能同步：点击「🔄 Sync」一键拉取本地模型列表<br>- 支持附加完整网页正文、代码上下文及 URL 引用功能<br>- 支持 Ctrl + Enter 快捷发送，Enter 回车折行输入<br>- 支持请求进行中红色方块中断按钮（可立即停止）<br>- 支持 URL 自动切换规则弹窗新增 / 编辑<br>- 支持侧边栏中文 / English 双语切换<br>- 拥有精致的毛玻璃浅色设计界面<br>- 完全隐私本地化：数据不经任何中转服务器 | 🚨 准备提交审核 |

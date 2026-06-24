@@ -2,7 +2,7 @@
 
 ContextLens is a Chrome extension that lets you highlight text on any webpage and instantly interact with AI models in a side panel. It automatically captures deep DOM context around your selection (full code blocks, tables, surrounding paragraphs), with optional full-page article content, so the model can respond with accurate, context-rich answers.
 
-It also supports **local CLI coding agents** (Claude Code, Codex CLI, Gemini CLI, Copilot CLI). Through the Bridge Server, selected UI text can be sent directly to your local agent, enabling a seamless workflow from "select text -> locate code -> apply changes".
+It also supports **local CLI coding agents** (Claude Code, Codex CLI, Antigravity CLI, Copilot CLI). Through the Bridge Server, selected UI text can be sent directly to your local agent, enabling a seamless workflow from "select text -> locate code -> apply changes".
 
 ---
 
@@ -17,7 +17,7 @@ It also supports **local CLI coding agents** (Claude Code, Codex CLI, Gemini CLI
 - **Instant tooltip for pinned models**: Pure CSS tooltip with scale-pop animation and safe positioning to avoid clipping; pin icons smoothly transition to filled state.
 - **Precise right-click image filtering**: Image parsing now runs only when right-clicking actual image elements (`<img>`, `<picture>`, `<figure>`), avoiding noisy false-positive image capture on normal text/container clicks.
 - **Multi-provider API support**: Connect to Google Gemini, OpenAI, Anthropic Claude, and any OpenAI-compatible custom/local endpoints (Ollama, LM Studio, vLLM, etc.).
-- **Local coding agents**: Via Bridge Server, connect Claude Code, Codex CLI, Gemini CLI, and Copilot CLI to locate and modify source code from selected UI text.
+- **Local coding agents**: Via Bridge Server, connect Claude Code, Codex CLI, Antigravity CLI, and Copilot CLI to locate and modify source code from selected UI text.
 - **URL auto-switch rules**: Glob-style domain rule engine for automatic model and working-directory switching by site.
 - **Rule modal editor**: Create and edit URL auto-switch rules in modal forms for cleaner interaction.
 - **Tab-level isolation**: Each tab keeps its own chat history, selection context, and model state.
@@ -42,7 +42,7 @@ This project uses Chrome Manifest V3 and is loaded as an unpacked extension:
 
 ### 2. Start Bridge Server (optional, required for local agents)
 
-If you want to use Claude Code / Codex CLI / Gemini CLI / Copilot CLI local agents:
+If you want to use Claude Code / Codex CLI / Antigravity CLI / Copilot CLI local agents:
 
 ```bash
 cd bridge
@@ -58,7 +58,7 @@ Bridge Server runs at `http://localhost:3100` by default. The extension will aut
 
 1. Click the **Settings (gear)** button at the top of the side panel.
 2. In **Basic Config**, manage models:
-   - **Local agents**: Auto-detect installed CLI agents (Claude Code, Codex, Gemini, Copilot), including availability and version. Click **Refresh Agents** to re-scan.
+   - **Local agents**: Auto-detect installed CLI agents (Claude Code, Codex, Antigravity, Copilot), including availability and version. Click **Refresh Agents** to re-scan.
    - **API models**: Click **+ Add API Model** in model cards, choose provider (Gemini / OpenAI / Claude / Custom), and enter API key + model name. Custom API supports one-click model list sync.
    - **Form behavior**: When switching providers in the modal, non-applicable fields are automatically cleared/reset. Sync success message auto-hides after a short delay.
 3. In **Auto-Switch Rules**, configure URL rules:
@@ -167,7 +167,7 @@ ContextLens/
 |---|---|---|
 | Claude Code | `claude -p <prompt> --output-format=stream-json` | Stream JSON (`assistant` / `tool_use` / `result`) |
 | Codex CLI | `codex exec --json -C <dir> <prompt>` | JSON (`agent_message` / `function_call` / `function_result`) |
-| Gemini CLI | `gemini --output-format=stream-json <prompt>` | Stream JSON (`content` / `reasoning` / `tool_call`) |
+| Antigravity CLI | `agy --output-format=stream-json -p <prompt>` | Stream JSON (`content` / `reasoning` / `tool_call`) |
 | Copilot CLI | `copilot --output-format json --stream on -p <prompt>` | JSON stream (`assistant.message_*` / `tool.execution_start` / `tool.execution_complete`) |
 
 ### URL rule engine

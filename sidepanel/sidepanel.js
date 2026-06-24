@@ -16,10 +16,33 @@ let appSettings = {
     custom: { apiKey: "", apiUrl: "", modelName: "" },
     "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "claude-code" },
     "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "codex" },
-    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "gemini" },
+    "antigravity-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "antigravity" },
     "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "copilot" }
   }
 };
+
+const LEGACY_LOCAL_AGENT_IDS = {
+  "gemini-agent": "antigravity-agent"
+};
+
+function normalizeLocalAgentId(id) {
+  return LEGACY_LOCAL_AGENT_IDS[id] || id;
+}
+
+function isLegacyGeminiCliPath(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return false;
+  const normalized = trimmed.replace(/\\/g, "/").toLowerCase();
+  return /(^|\/)gemini(\.cmd|\.exe)?$/.test(normalized) || normalized.includes("/gemini-cli/");
+}
+
+function sanitizeLocalAgentCommandPath(provider, commandPath) {
+  const trimmed = String(commandPath || "").trim();
+  if (normalizeLocalAgentId(provider) === "antigravity-agent" && isLegacyGeminiCliPath(trimmed)) {
+    return "";
+  }
+  return trimmed;
+}
 
 // Active Model ID (references an item in configuredApiModels or a detected local agent id)
 let activeModelId = null;
@@ -56,7 +79,7 @@ let addedProviderModels = {
   claude: [],
   "claude-agent": [],
   "codex-agent": [],
-  "gemini-agent": [],
+  "antigravity-agent": [],
   "copilot-agent": [],
   custom: []
 };
@@ -650,7 +673,7 @@ const I18N = {
     "chat.local_agent_named": "本地 {name}",
     "chat.local_agent_claude": "本地 Claude Code CLI",
     "chat.local_agent_codex": "本地 Codex CLI",
-    "chat.local_agent_gemini": "本地 Gemini CLI",
+    "chat.local_agent_antigravity": "本地 Antigravity CLI",
     "chat.local_agent_copilot": "本地 Copilot CLI",
     "chat.initializing_agent": "正在启动并初始化{agent}...",
     "chat.request_failed": "⚠️ API 请求发送失败: {error}",
@@ -679,7 +702,7 @@ const I18N = {
     "rules.default_claude_api": "Anthropic Claude 官方 API",
     "rules.default_claude_agent": "Claude Code 本地 Agent",
     "rules.default_codex_agent": "Codex CLI 本地 Agent",
-    "rules.default_gemini_agent": "Gemini CLI 本地 Agent",
+    "rules.default_antigravity_agent": "Antigravity CLI 本地 Agent",
     "rules.default_copilot_agent": "Copilot CLI 本地 Agent",
     "header.new_chat_title": "新建对话",
     "context.page_only_loaded": "💡 已导入当前网页上下文（标题及地址）"
@@ -855,7 +878,7 @@ const I18N = {
     "chat.local_agent_named": "Local {name}",
     "chat.local_agent_claude": "Local Claude Code CLI",
     "chat.local_agent_codex": "Local Codex CLI",
-    "chat.local_agent_gemini": "Local Gemini CLI",
+    "chat.local_agent_antigravity": "Local Antigravity CLI",
     "chat.local_agent_copilot": "Local Copilot CLI",
     "chat.initializing_agent": "Initializing {agent}...",
     "chat.request_failed": "⚠️ API request failed: {error}",
@@ -884,7 +907,7 @@ const I18N = {
     "rules.default_claude_api": "Anthropic Claude Official API",
     "rules.default_claude_agent": "Claude Code Local Agent",
     "rules.default_codex_agent": "Codex CLI Local Agent",
-    "rules.default_gemini_agent": "Gemini CLI Local Agent",
+    "rules.default_antigravity_agent": "Antigravity CLI Local Agent",
     "rules.default_copilot_agent": "Copilot CLI Local Agent",
     "header.new_chat_title": "New Chat",
     "context.page_only_loaded": "💡 Imported current page context (title & URL)"
@@ -980,8 +1003,8 @@ const providerModels = {
   "codex-agent": [
     { value: "codex", label: "Codex CLI Agent" }
   ],
-  "gemini-agent": [
-    { value: "gemini", label: "Gemini CLI Agent" }
+  "antigravity-agent": [
+    { value: "antigravity", label: "Antigravity CLI Agent" }
   ],
   "copilot-agent": [
     { value: "copilot", label: "Copilot CLI Agent" }
@@ -1247,7 +1270,7 @@ async function loadSettings() {
   tabStates = result.tabStates || {};
   uiLanguage = result.uiLanguage === "en" ? "en" : "zh";
   applyI18nToStaticUI();
-  appSettings.apiProvider = result.apiProvider || "gemini";
+  appSettings.apiProvider = normalizeLocalAgentId(result.apiProvider || "gemini");
   appSettings.temperature = result.temperature !== undefined ? parseFloat(result.temperature) : 0.7;
 
   // Set up providers config cache with robust fallback defaults
@@ -1258,9 +1281,24 @@ async function loadSettings() {
     custom: { apiKey: "", apiUrl: "", modelName: "" },
     "claude-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "claude-code" },
     "codex-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "codex" },
-    "gemini-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "gemini" },
+    "antigravity-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "antigravity" },
     "copilot-agent": { apiUrl: "http://localhost:3100", cwd: "", commandPath: "", modelName: "copilot" }
   };
+  if (result.providers && result.providers["gemini-agent"]) {
+    const legacyGoogleAgent = result.providers["gemini-agent"];
+    const savedAntigravityAgent = result.providers["antigravity-agent"] || {};
+    result.providers["antigravity-agent"] = {
+      ...legacyGoogleAgent,
+      ...savedAntigravityAgent,
+      apiUrl: savedAntigravityAgent.apiUrl || legacyGoogleAgent.apiUrl || "http://localhost:3100",
+      cwd: savedAntigravityAgent.cwd || legacyGoogleAgent.cwd || "",
+      commandPath: sanitizeLocalAgentCommandPath(
+        "antigravity-agent",
+        savedAntigravityAgent.commandPath || legacyGoogleAgent.commandPath || legacyGoogleAgent.claudePath || ""
+      ),
+      modelName: savedAntigravityAgent.modelName || legacyGoogleAgent.modelName || "antigravity"
+    };
+  }
   
   appSettings.providers = {};
   for (const [provId, defConfig] of Object.entries(defaultProviders)) {
@@ -1269,6 +1307,7 @@ async function loadSettings() {
     if (normalizedConfig.claudePath && !normalizedConfig.commandPath) {
       normalizedConfig.commandPath = normalizedConfig.claudePath;
     }
+    normalizedConfig.commandPath = sanitizeLocalAgentCommandPath(provId, normalizedConfig.commandPath);
     delete normalizedConfig.claudePath;
     appSettings.providers[provId] = { ...defConfig, ...normalizedConfig };
   }
@@ -1276,8 +1315,8 @@ async function loadSettings() {
   // Backward compatibility migration:
   // If root variables exist in result, copy them to the corresponding provider inside providers cache
   if (result.apiKey || result.apiUrl || result.modelName || result.cwd || result.commandPath || result.claudePath) {
-    const prov = result.apiProvider || "gemini";
-    const storedCommandPath = result.commandPath || result.claudePath || "";
+    const prov = normalizeLocalAgentId(result.apiProvider || "gemini");
+    const storedCommandPath = sanitizeLocalAgentCommandPath(prov, result.commandPath || result.claudePath || "");
     if (appSettings.providers[prov]) {
       if (result.apiKey && !appSettings.providers[prov].apiKey) appSettings.providers[prov].apiKey = result.apiKey;
       if (result.apiUrl && !appSettings.providers[prov].apiUrl) appSettings.providers[prov].apiUrl = result.apiUrl;
@@ -1296,12 +1335,16 @@ async function loadSettings() {
     claude: [],
     "claude-agent": [],
     "codex-agent": [],
-    "gemini-agent": [],
+    "antigravity-agent": [],
     "copilot-agent": [],
     custom: []
   };
 
-  const provKeys = ["gemini", "openai", "claude", "claude-agent", "codex-agent", "gemini-agent", "copilot-agent", "custom"];
+  if (result.addedProviderModels?.["gemini-agent"] && !addedProviderModels["antigravity-agent"]) {
+    addedProviderModels["antigravity-agent"] = result.addedProviderModels["gemini-agent"];
+  }
+
+  const provKeys = ["gemini", "openai", "claude", "claude-agent", "codex-agent", "antigravity-agent", "copilot-agent", "custom"];
   provKeys.forEach(k => {
     if (!addedProviderModels[k]) addedProviderModels[k] = [];
   });
@@ -1350,10 +1393,20 @@ async function loadSettings() {
   }
 
   // Load contextMenuModelIds
-  contextMenuModelIds = result.contextMenuModelIds || [];
+  contextMenuModelIds = [...new Set((result.contextMenuModelIds || []).map(normalizeLocalAgentId))];
+  if (contextMenuModelIds.join("|") !== (result.contextMenuModelIds || []).join("|")) {
+    await chrome.storage.local.set({ contextMenuModelIds });
+  }
 
   // Load urlSwitchRules
-  urlSwitchRules = result.urlSwitchRules || [];
+  urlSwitchRules = (result.urlSwitchRules || []).map((rule) => ({
+    ...rule,
+    provider: normalizeLocalAgentId(rule.provider),
+    model: normalizeLocalAgentId(rule.model)
+  }));
+  if (urlSwitchRules.some((rule, index) => rule.provider !== (result.urlSwitchRules || [])[index]?.provider || rule.model !== (result.urlSwitchRules || [])[index]?.model)) {
+    await chrome.storage.local.set({ urlSwitchRules });
+  }
   if (urlSwitchRules.length === 0) {
     urlSwitchRules = [
       {
@@ -1466,6 +1519,7 @@ function getAllModelChoices() {
 
 function resolveModelChoiceById(modelId) {
   if (!modelId) return null;
+  modelId = normalizeLocalAgentId(modelId);
 
   const apiModel = configuredApiModels.find((model) => model.id === modelId);
   if (apiModel) {
@@ -1499,7 +1553,7 @@ function resolveModelChoiceById(modelId) {
     const defaultLabelMap = {
       "claude-agent": t("chat.local_agent_claude"),
       "codex-agent": t("chat.local_agent_codex"),
-      "gemini-agent": t("chat.local_agent_gemini"),
+      "antigravity-agent": t("chat.local_agent_antigravity"),
       "copilot-agent": t("chat.local_agent_copilot")
     };
     return {
@@ -1532,8 +1586,8 @@ function normalizeModelIds(activeId, defaultId, options = {}) {
   const { migrateDefaultFromActive = false } = options;
   const initialActive = activeId || null;
   const initialDefault = defaultId || null;
-  let nextActive = initialActive;
-  let nextDefault = initialDefault;
+  let nextActive = normalizeLocalAgentId(initialActive);
+  let nextDefault = normalizeLocalAgentId(initialDefault);
 
   if (!nextDefault && migrateDefaultFromActive) {
     nextDefault = nextActive;
@@ -1610,7 +1664,10 @@ function applyModelChoiceToAppSettings(choice) {
       }
     }
     appSettings.cwd = effectiveCwd;
-    appSettings.commandPath = provCfg.commandPath || provCfg.claudePath || choice.executablePath || "";
+    appSettings.commandPath = sanitizeLocalAgentCommandPath(
+      choice.provider,
+      provCfg.commandPath || provCfg.claudePath || choice.executablePath || ""
+    );
 
     if (appSettings.providers[choice.provider]) {
       appSettings.providers[choice.provider].modelName = choice.model;
@@ -1810,7 +1867,15 @@ async function fetchLocalAgentsFromBridge(bridgeUrl) {
     });
     if (res.ok) {
       const json = await res.json();
-      return json.agents || [];
+      const seen = new Set();
+      return (json.agents || []).map((agent) => ({
+        ...agent,
+        id: normalizeLocalAgentId(agent.id)
+      })).filter((agent) => {
+        if (seen.has(agent.id)) return false;
+        seen.add(agent.id);
+        return true;
+      });
     }
   } catch (e) {
     console.log("[ContextLens] Bridge not available for agent detection:", e.message);
@@ -1878,7 +1943,7 @@ function renderAvailableModelCards() {
 
   // Local agents from bridge
   for (const agent of detectedLocalAgents) {
-    const icons = { "claude-agent": "🤖", "codex-agent": "⚡", "gemini-agent": "🌟", "copilot-agent": "⌨️" };
+    const icons = { "claude-agent": "🤖", "codex-agent": "⚡", "antigravity-agent": "🌟", "copilot-agent": "⌨️" };
     cards.push({
       id: agent.id,
       type: "local",
@@ -2818,7 +2883,7 @@ function setupEventListeners() {
   if (ruleProviderSelect) {
     ruleProviderSelect.addEventListener("change", (e) => {
       const selectedOption = e.target.options[e.target.selectedIndex];
-      const provider = selectedOption.dataset.provider || "gemini";
+      const provider = normalizeLocalAgentId(selectedOption.dataset.provider || "gemini");
       toggleRuleCwdGroup(provider);
       // Model is already selected via the option, no need to render
     });
@@ -2850,8 +2915,8 @@ function setupEventListeners() {
       
       // Extract provider and model from selected option
       const selectedOption = ruleProviderSelect.options[ruleProviderSelect.selectedIndex];
-      const provider = selectedOption.dataset.provider || "gemini";
-      const model = selectedOption.dataset.modelName || "";
+      const provider = normalizeLocalAgentId(selectedOption.dataset.provider || "gemini");
+      const model = normalizeLocalAgentId(selectedOption.dataset.modelName || "");
       const modelConfigId = selectedOption.value; // Store the actual ID from configuredApiModels
       
       if (!provider || !model) {
@@ -3691,7 +3756,7 @@ async function handleNewSelection(selection, isNewInteraction = false) {
       delete tabTemporaryModelOverrides[tabId];
     } else {
       tabTemporaryModelOverrides[tabId] = {
-        modelId: selection.temporaryModelOverride,
+        modelId: normalizeLocalAgentId(selection.temporaryModelOverride),
         updatedAt: Date.now()
       };
     }
@@ -3813,8 +3878,9 @@ async function handleSendMessage() {
   // Send request to AI
   let fullPrompt = text;
 
-  // Determine cwd strictly from URL rule matching.
-  // Only when the current page matches an enabled agent rule should we pass a workspace path to local CLI agents.
+  // Determine cwd for local agents. URL rule cwd wins; configured agent cwd is
+  // a fallback. If neither exists, keep cwd empty and use the agent as a
+  // general web/context QA model instead of a local code-editing agent.
   const _isAgentProvider = appSettings.apiProvider.endsWith("-agent");
   let _pageUrl = (currentContext && currentContext.pageUrl) ? currentContext.pageUrl : "";
   if (!_pageUrl && messageTabId) {
@@ -3828,7 +3894,14 @@ async function handleSendMessage() {
   const matchedRuleCwd = matchedRuleForRequest
     ? (matchedRuleForRequest.cwd || "").trim()
     : "";
-  const effectiveCwd = _isAgentProvider && matchedRuleCwd ? matchedRuleCwd : "";
+  const configuredAgentCwd = _isAgentProvider
+    ? (
+        appSettings.providers?.[appSettings.apiProvider]?.cwd ||
+        appSettings.cwd ||
+        ""
+      ).trim()
+    : "";
+  const effectiveCwd = _isAgentProvider ? (matchedRuleCwd || configuredAgentCwd) : "";
 
   // Silently ensure basic page context is populated if the user has no selection and currentContext is null.
   // This handles edge cases: user cleared context, or ensureBasicPageContext hasn't resolved yet.
@@ -4027,6 +4100,25 @@ User Question: ${text}`;
       chatHistory[0].displayText = chatHistory[0].displayText || chatHistory[0].content;
       chatHistory[0].content = fullPrompt;
       chatHistory[0]._contextEmbedded = true; // mark as having context already embedded
+      if (messageTabId) {
+        const state = getTabState(messageTabId);
+        state.chatHistory = [...chatHistory];
+        persistTabStates();
+      }
+    }
+  }
+
+  if (_isAgentProvider && !effectiveCwd && chatHistory.length === 1 && !currentContext) {
+    fullPrompt = `You are ContextLens, a precise and helpful AI assistant.
+No local workspace path was provided for this request, so answer as a general web/context question and do not claim to inspect or edit local project files.
+
+[User Question]
+${text}`;
+
+    if (chatHistory.length > 0) {
+      chatHistory[0].displayText = chatHistory[0].displayText || chatHistory[0].content;
+      chatHistory[0].content = fullPrompt;
+      chatHistory[0]._contextEmbedded = true;
       if (messageTabId) {
         const state = getTabState(messageTabId);
         state.chatHistory = [...chatHistory];
@@ -5412,7 +5504,7 @@ async function triggerAIStreamResponse(promptText, messageTabId, effectiveCwd = 
       if (matchingAgent) agentLabel = t("chat.local_agent_named", { name: matchingAgent.label });
       else if (apiProvider === "claude-agent") agentLabel = t("chat.local_agent_claude");
       else if (apiProvider === "codex-agent") agentLabel = t("chat.local_agent_codex");
-      else if (apiProvider === "gemini-agent") agentLabel = t("chat.local_agent_gemini");
+      else if (apiProvider === "antigravity-agent") agentLabel = t("chat.local_agent_antigravity");
       else if (apiProvider === "copilot-agent") agentLabel = t("chat.local_agent_copilot");
 
       systemLogsText = `${t("chat.initializing_agent", { agent: agentLabel })}\n`;
@@ -6471,6 +6563,11 @@ function matchUrlPattern(url, pattern) {
 
 // Override appSettings dynamically with matched rule configuration
 function applyRuleSettings(rule) {
+  rule = {
+    ...rule,
+    provider: normalizeLocalAgentId(rule.provider),
+    model: normalizeLocalAgentId(rule.model)
+  };
   console.log("[DEBUG] Applying rule settings:", rule.name, rule.provider, rule.model, "ConfigID:", rule.modelConfigId);
 
   if (!defaultSettingsBackup) {
@@ -6923,7 +7020,7 @@ function renderConfiguredModelsForRule(selectedModelId = null) {
       { label: t("rules.default_claude_api"), value: "claude:default", provider: "claude", model: "claude-3-5-sonnet-20241022" },
       { label: t("rules.default_claude_agent"), value: "claude-agent:default", provider: "claude-agent", model: "claude-code" },
       { label: t("rules.default_codex_agent"), value: "codex-agent:default", provider: "codex-agent", model: "codex" },
-      { label: t("rules.default_gemini_agent"), value: "gemini-agent:default", provider: "gemini-agent", model: "gemini" },
+      { label: t("rules.default_antigravity_agent"), value: "antigravity-agent:default", provider: "antigravity-agent", model: "antigravity" },
       { label: t("rules.default_copilot_agent"), value: "copilot-agent:default", provider: "copilot-agent", model: "copilot" }
     ];
     defaults.forEach(item => {

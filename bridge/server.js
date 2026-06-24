@@ -11,9 +11,10 @@ function detectLocalAgents() {
   const idMap = {
     'claude': 'claude-agent',
     'codex': 'codex-agent',
-    'gemini': 'gemini-agent',
+    'antigravity': 'antigravity-agent',
     'copilot': 'copilot-agent'
   };
+  const seen = new Set();
   return agents
     .filter(a => idMap[a.id])
     .map(a => ({
@@ -24,7 +25,12 @@ function detectLocalAgents() {
       available: a.available,
       executablePath: a.executablePath,
       version: a.version || 'unknown'
-    }));
+    }))
+    .filter(a => {
+      if (seen.has(a.id)) return false;
+      seen.add(a.id);
+      return true;
+    });
 }
 
 // Cache: detect agents once at startup in background (non-blocking)
@@ -101,8 +107,8 @@ const server = http.createServer((req, res) => {
         let agentType = 'claude-code';
         if (agentId === 'codex-agent') {
           agentType = 'codex';
-        } else if (agentId === 'gemini-agent') {
-          agentType = 'gemini';
+        } else if (agentId === 'antigravity-agent') {
+          agentType = 'antigravity';
         } else if (agentId === 'copilot-agent') {
           agentType = 'copilot';
         }
@@ -122,12 +128,22 @@ const server = http.createServer((req, res) => {
 
         const sendText = (text) => {
           if (finished) return;
+          if (!text) return;
           res.write(`data: ${JSON.stringify({ text, type: 'text' })}\n\n`);
         };
+
+        const antigravitySystemPrompt = [
+          'You are running inside ContextLens as a local coding assistant.',
+          'The prompt contains the user request and, when available, the local workspace path.',
+          'If the request asks for code or project changes, inspect and edit the workspace files directly.',
+          'Do not replace implementation work with general research or an explanation of CLI flags.',
+          'After acting, report what changed, what files were touched, and any verification results.'
+        ].join('\n');
 
         runCliAgent({
           agent: agentType,
           prompt,
+          systemPrompt: agentType === 'antigravity' ? antigravitySystemPrompt : undefined,
           cwd,
           commandPath: resolvedCommandPath,
           attachments,

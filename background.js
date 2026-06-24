@@ -11,14 +11,22 @@ const LOCAL_AGENT_LABELS = {
   zh: {
     "claude-agent": "Claude Code 本地 Agent",
     "codex-agent": "Codex CLI 本地 Agent",
-    "gemini-agent": "Gemini CLI 本地 Agent"
+    "antigravity-agent": "Antigravity CLI 本地 Agent"
   },
   en: {
     "claude-agent": "Claude Code Local Agent",
     "codex-agent": "Codex CLI Local Agent",
-    "gemini-agent": "Gemini CLI Local Agent"
+    "antigravity-agent": "Antigravity CLI Local Agent"
   }
 };
+
+const LEGACY_LOCAL_AGENT_IDS = {
+  "gemini-agent": "antigravity-agent"
+};
+
+function normalizeLocalAgentId(id) {
+  return LEGACY_LOCAL_AGENT_IDS[id] || id;
+}
 
 const DEFAULT_MODEL_LABELS = {
   zh: "默认模型",
@@ -55,7 +63,7 @@ async function rebuildContextMenus() {
       }
 
       const result = await chrome.storage.local.get(["contextMenuModelIds", "configuredApiModels", "uiLanguage"]);
-      const contextMenuModelIds = result.contextMenuModelIds || [];
+      const contextMenuModelIds = [...new Set((result.contextMenuModelIds || []).map(normalizeLocalAgentId))];
       const configuredApiModels = result.configuredApiModels || [];
       const uiLang = result.uiLanguage === "en" ? "en" : "zh";
 
@@ -100,7 +108,7 @@ async function rebuildContextMenus() {
           }
 
           createContextMenuSafe({
-            id: `ask-contextlens-model-${modelId}`,
+          id: `ask-contextlens-model-${modelId}`,
             parentId: "ask-contextlens-parent",
             title: label,
             contexts: ["all"]
