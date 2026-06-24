@@ -36,9 +36,31 @@ function isLegacyGeminiCliPath(value) {
   return /(^|\/)gemini(\.cmd|\.exe)?$/.test(normalized) || normalized.includes("/gemini-cli/");
 }
 
+function localAgentCommandPathMatchesProvider(provider, commandPath) {
+  const trimmed = String(commandPath || "").trim();
+  if (!trimmed) return true;
+
+  const normalizedProvider = normalizeLocalAgentId(provider);
+  const normalizedPath = trimmed.replace(/\\/g, "/").toLowerCase();
+  const basename = normalizedPath.split("/").pop() || "";
+  const commandName = basename.replace(/\.(cmd|exe)$/, "");
+  const allowedNamesByProvider = {
+    "claude-agent": ["claude"],
+    "codex-agent": ["codex"],
+    "antigravity-agent": ["agy", "antigravity"],
+    "copilot-agent": ["copilot"]
+  };
+  const allowedNames = allowedNamesByProvider[normalizedProvider];
+  if (!allowedNames) return true;
+  return allowedNames.includes(commandName);
+}
+
 function sanitizeLocalAgentCommandPath(provider, commandPath) {
   const trimmed = String(commandPath || "").trim();
   if (normalizeLocalAgentId(provider) === "antigravity-agent" && isLegacyGeminiCliPath(trimmed)) {
+    return "";
+  }
+  if (!localAgentCommandPathMatchesProvider(provider, trimmed)) {
     return "";
   }
   return trimmed;
@@ -1654,12 +1676,13 @@ function applyModelChoiceToAppSettings(choice) {
     appSettings.apiUrl = DEFAULT_BRIDGE_URL;
     appSettings.modelName = choice.model;
     
-    // Check if there is a matching URL rule for the current page and use its cwd if available
-    let effectiveCwd = provCfg.cwd || "";
+    // Check if there is a matching URL rule for the current page and use its cwd if available.
+    // Keep this as runtime state only; stale provider cwd values must not become global defaults.
+    let effectiveCwd = "";
     const activeUrl = currentContext?.pageUrl || "";
     if (activeUrl) {
       const matchedRule = findMatchingRule(activeUrl);
-      if (matchedRule && matchedRule.cwd && matchedRule.cwd.trim()) {
+      if (matchedRule && normalizeLocalAgentId(matchedRule.provider) === choice.provider && matchedRule.cwd && matchedRule.cwd.trim()) {
         effectiveCwd = matchedRule.cwd.trim();
       }
     }
@@ -1672,7 +1695,6 @@ function applyModelChoiceToAppSettings(choice) {
     if (appSettings.providers[choice.provider]) {
       appSettings.providers[choice.provider].modelName = choice.model;
       appSettings.providers[choice.provider].apiUrl = DEFAULT_BRIDGE_URL;
-      appSettings.providers[choice.provider].cwd = appSettings.cwd;
       appSettings.providers[choice.provider].commandPath = appSettings.commandPath;
     }
   }
@@ -1831,9 +1853,12 @@ async function openModelQuickPopover() {
 
     ruleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const cwdDefault = choice.provider.endsWith("-agent")
-        ? (appSettings.providers[choice.provider]?.cwd || appSettings.cwd || "")
-        : "";
+      const matchedRule = findMatchingRule(tab.url || "");
+      const cwdDefault = choice.provider.endsWith("-agent") &&
+        matchedRule &&
+        normalizeLocalAgentId(matchedRule.provider) === choice.provider
+          ? (matchedRule.cwd || "")
+          : "";
 
       openRuleEditorWithPreset({
         name: `${domain} · ${choice.label}`,
@@ -3406,7 +3431,7 @@ function updateStatusUI() {
     const tabUrl = state.currentContext?.pageUrl || currentContext?.pageUrl || "";
     if (tabUrl) {
       const rule = findMatchingRule(tabUrl);
-      if (rule && rule.cwd && rule.cwd.trim()) {
+      if (rule && normalizeLocalAgentId(rule.provider) === appSettings.apiProvider && rule.cwd && rule.cwd.trim()) {
         matchedCwd = rule.cwd.trim();
       }
     }
@@ -3878,9 +3903,9 @@ async function handleSendMessage() {
   // Send request to AI
   let fullPrompt = text;
 
-  // Determine cwd for local agents. URL rule cwd wins; configured agent cwd is
-  // a fallback. If neither exists, keep cwd empty and use the agent as a
-  // general web/context QA model instead of a local code-editing agent.
+  // Determine cwd for local agents. Only URL rules may provide a real
+  // workspace. If no rule matches, keep cwd empty and let the bridge use its
+  // dedicated empty workspace for general web/context QA.
   const _isAgentProvider = appSettings.apiProvider.endsWith("-agent");
   let _pageUrl = (currentContext && currentContext.pageUrl) ? currentContext.pageUrl : "";
   if (!_pageUrl && messageTabId) {
@@ -3891,17 +3916,10 @@ async function handleSendMessage() {
   }
 
   const matchedRuleForRequest = _pageUrl ? findMatchingRule(_pageUrl) : null;
-  const matchedRuleCwd = matchedRuleForRequest
+  const matchedRuleCwd = matchedRuleForRequest && normalizeLocalAgentId(matchedRuleForRequest.provider) === appSettings.apiProvider
     ? (matchedRuleForRequest.cwd || "").trim()
     : "";
-  const configuredAgentCwd = _isAgentProvider
-    ? (
-        appSettings.providers?.[appSettings.apiProvider]?.cwd ||
-        appSettings.cwd ||
-        ""
-      ).trim()
-    : "";
-  const effectiveCwd = _isAgentProvider ? (matchedRuleCwd || configuredAgentCwd) : "";
+  const effectiveCwd = _isAgentProvider ? matchedRuleCwd : "";
 
   // Silently ensure basic page context is populated if the user has no selection and currentContext is null.
   // This handles edge cases: user cleared context, or ensureBasicPageContext hasn't resolved yet.

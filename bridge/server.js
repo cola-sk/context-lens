@@ -5,6 +5,51 @@ const os = require('os');
 const { detectCliAgents, runCliAgent } = require('@sking7/agent-cli-unified');
 
 const PORT = 3100;
+const EMPTY_WORKSPACE_ROOT = path.join(os.homedir(), '.contextlens', 'empty-workspaces');
+
+function resolveRequestCwd(cwd) {
+  const trimmed = typeof cwd === 'string' ? cwd.trim() : '';
+  if (trimmed) return { cwd: trimmed, ephemeral: false };
+
+  try {
+    fs.mkdirSync(EMPTY_WORKSPACE_ROOT, { recursive: true });
+    return {
+      cwd: fs.mkdtempSync(path.join(EMPTY_WORKSPACE_ROOT, 'session-')),
+      ephemeral: true
+    };
+  } catch (e) {
+    console.warn('[ContextLens Bridge] Failed to create empty workspace:', e.message);
+    return {
+      cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'contextlens-empty-')),
+      ephemeral: true
+    };
+  }
+}
+
+function cleanupRequestCwd(cwdInfo) {
+  if (!cwdInfo || !cwdInfo.ephemeral || !cwdInfo.cwd) return;
+  try {
+    fs.rmSync(cwdInfo.cwd, { recursive: true, force: true });
+  } catch (e) {
+    console.warn('[ContextLens Bridge] Failed to clean empty workspace:', e.message);
+  }
+}
+
+function commandPathMatchesAgent(agentType, commandPath) {
+  const trimmed = typeof commandPath === 'string' ? commandPath.trim() : '';
+  if (!trimmed) return true;
+
+  const commandName = path.basename(trimmed).toLowerCase().replace(/\.(cmd|exe)$/, '');
+  const allowedNamesByAgent = {
+    'claude-code': ['claude'],
+    'codex': ['codex'],
+    'antigravity': ['agy', 'antigravity'],
+    'copilot': ['copilot']
+  };
+  const allowedNames = allowedNamesByAgent[agentType];
+  if (!allowedNames) return true;
+  return allowedNames.includes(commandName);
+}
 
 function detectLocalAgents() {
   const agents = detectCliAgents();
@@ -113,10 +158,17 @@ const server = http.createServer((req, res) => {
           agentType = 'copilot';
         }
 
-        const resolvedCommandPath =
+        const requestedCommandPath =
           (typeof commandPath === 'string' && commandPath.trim()) ||
           (typeof claudePath === 'string' && claudePath.trim()) ||
           undefined;
+        const resolvedCommandPath = commandPathMatchesAgent(agentType, requestedCommandPath)
+          ? requestedCommandPath
+          : undefined;
+
+        if (requestedCommandPath && !resolvedCommandPath) {
+          console.warn(`[ContextLens Bridge] Ignoring mismatched commandPath for ${agentType}: ${requestedCommandPath}`);
+        }
 
         let finished = false;
         const toolMap = new Map();
@@ -140,11 +192,13 @@ const server = http.createServer((req, res) => {
           'After acting, report what changed, what files were touched, and any verification results.'
         ].join('\n');
 
+        const cwdInfo = resolveRequestCwd(cwd);
+
         runCliAgent({
           agent: agentType,
           prompt,
           systemPrompt: agentType === 'antigravity' ? antigravitySystemPrompt : undefined,
-          cwd,
+          cwd: cwdInfo.cwd,
           commandPath: resolvedCommandPath,
           attachments,
           onEvent: (event) => {
@@ -220,6 +274,8 @@ const server = http.createServer((req, res) => {
           res.write(`data: ${JSON.stringify({ text: `\n⚠️ Runtime error: ${err.message}\n`, type: 'error' })}\n\n`);
           res.write(`data: [DONE]\n\n`);
           res.end();
+        }).finally(() => {
+          cleanupRequestCwd(cwdInfo);
         });
 
       } catch (err) {
