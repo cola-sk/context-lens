@@ -198,8 +198,11 @@ chrome.sidePanel.setOptions({
   console.warn("🔮 [ContextLens Background] Failed to disable side panel globally on startup:", err);
 });
 
+importScripts("telemetry.js");
+
 // Create Context Menu on install and disable side panel globally by default
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") void recordTelemetry("install");
   rebuildContextMenus();
 
   // Disable side panel globally by default
@@ -383,6 +386,14 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // Handle messages from content script (Floating Action Button click or right click caching)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "CONTEXTLENS_TELEMETRY") {
+    if (sender.url === chrome.runtime.getURL("sidepanel/sidepanel.html") &&
+        (message.eventType === "chat_open" || message.eventType === "chat_send")) {
+      recordTelemetry(message.eventType).then(() => sendResponse({ success: true }));
+      return true;
+    }
+    return;
+  }
   if (message.type === "RIGHT_CLICK_CONTEXT") {
     const tabId = sender.tab?.id;
     if (tabId) {

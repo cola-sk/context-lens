@@ -1170,6 +1170,7 @@ function isAbortError(err) {
 // --- INITIALIZATION ---
 
 document.addEventListener("DOMContentLoaded", async () => {
+  void chrome.runtime.sendMessage({ type: "CONTEXTLENS_TELEMETRY", eventType: "chat_open" }).catch(() => {});
   await loadSettings();
   setupEventListeners();
   setRequestRunningState(false);
@@ -1429,28 +1430,6 @@ async function loadSettings() {
   if (urlSwitchRules.some((rule, index) => rule.provider !== (result.urlSwitchRules || [])[index]?.provider || rule.model !== (result.urlSwitchRules || [])[index]?.model)) {
     await chrome.storage.local.set({ urlSwitchRules });
   }
-  if (urlSwitchRules.length === 0) {
-    urlSwitchRules = [
-      {
-        name: "ContextLens Workspace",
-        pattern: "*github.com/cola-sk/context-lens*",
-        provider: "claude-agent",
-        model: "claude-code",
-        cwd: "/Users/liuzhe.x/coding/ContextLens",
-        enabled: true
-      },
-      {
-        name: "Github Repositories",
-        pattern: "*github.com/*",
-        provider: "claude",
-        model: "claude-3-5-sonnet-latest",
-        cwd: "",
-        enabled: true
-      }
-    ];
-    await chrome.storage.local.set({ urlSwitchRules: urlSwitchRules });
-  }
-
   // Update temperature slider
   modelTemperature.value = appSettings.temperature;
   tempVal.textContent = appSettings.temperature;
@@ -3866,6 +3845,8 @@ async function handleSendMessage() {
   }));
 
   if (!rawText && outgoingImageAttachments.length === 0) return;
+
+  void chrome.runtime.sendMessage({ type: "CONTEXTLENS_TELEMETRY", eventType: "chat_send" }).catch(() => {});
 
   const text = rawText || t("chat.image_only_prompt");
   const userDisplayText = rawText || t("chat.image_only_message");

@@ -1,7 +1,7 @@
 # Chrome Web Store Listing — ContextLens
 
-> 上次更新日期：2026-05-22
-> 插件版本：1.0.0
+> 上次更新日期：2026-11-25
+> 插件版本：1.0.7
 
 本文档是 ContextLens 浏览器插件发布到 Chrome Web Store（谷歌浏览器应用商店）的**单一定源 (Single Source of Truth) 配置文件**。在提交插件进行审核时，你可以直接从本文档中复制所需的元数据、权限说明和隐私权声明。
 
@@ -50,7 +50,7 @@ ContextLens 是一款为深度阅读、学术研究及日常浏览量身定制�
 
 8. 键盘快捷键与输入优化：支持使用 Ctrl + Enter（或 macOS 上的 Cmd + Enter）快速发送内容，同时保留 Enter 回车换行的原生输入体验，让写作流畅自如。
 
-9. 完全隐私本地化：您的 API 密钥、配置、对话历史均 100% 存储在您个人设备的本地浏览器沙箱中，绝不上传任何中转服务器。数据只会通过 HTTPS 加密通道直接发送至您选择的 AI 服务商的官方 API 端点。
+9. 隐私保护：您的 API 密钥、配置、对话历史均 100% 存储在您个人设备的本地浏览器沙箱中，绝不上传任何中转服务器。聊天相关数据通过 HTTPS 直接发送至您选择的 AI 服务商；插件还会上报不含聊天内容的匿名使用事件。
 
 10. 运行中可中断：当模型正在生成回复时，发送按钮会自动切换为红色方块中断按钮。点击后可立即终止请求（包括首包等待阶段与流式阶段）。
 
@@ -69,11 +69,11 @@ ContextLens 是一款为深度阅读、学术研究及日常浏览量身定制�
 5. 如果需要分析整篇长文或代码库背景，请勾选"💡 附加完整文章上下文"以发送更充足的上下文信息。
 
 【隐私与安全保障】
-ContextLens 坚守用户隐私至上的原则，不收集任何个人数据：
+ContextLens 保护聊天内容，并收集有限的匿名使用事件：
 - 无账户依赖：您无须注册任何账户，也不会收集您的邮箱、姓名或个人身份信息。
 - 100% 本地存储：您的 API 密钥、配置、对话历史及上下文均存储在浏览器本地的安全沙箱（chrome.storage.local）中，绝不上传任何中转服务器。
-- 点对点直连：AI 请求通过 HTTPS 加密通道直接发送至官方 API 端点（Google、OpenAI、Anthropic）或您自行配置的本地端点，中间没有任何中间代理或监控。
-- 本地 Agent 隔离：本地开发者 Agent（如 Claude Code）运行在您个人设备上，完全不经网络，数据永不离开您的电脑。
+- 点对点直连：AI 请求通过 HTTPS 加密通道直接发送至官方 API 端点（Google、OpenAI、Anthropic）或您自行配置的本地端点，聊天内容不经过插件统计服务。
+- 本地 Agent 隔离：本地开发者 Agent（如 Claude Code）通过本地 Bridge 运行；Agent 可能按其自身配置与外部服务通信。
 ```
 
 ### 类别 (Category) [REQUIRED]
@@ -113,7 +113,7 @@ Productivity (生产力工具) 或 Developer Tools (开发者工具)
 | 声明权限 | 类型 | 合理使用理由 (Justification in English & Chinese) |
 | :--- | :--- | :--- |
 | `sidePanel` | permissions | **中文：** 用于在浏览器右侧打开一个独立而美观的侧边栏，以便在不覆盖或遮挡原网页内容的前提下，为用户提供沉浸式的 AI 问答交互界面。<br>**English:** Used to display a sleek, non-intrusive assistant sidebar on the right side of the browser, enabling users to interact with AI without overlapping or obscuring the main webpage content. |
-| `storage` | permissions | **中文：** 用于在用户浏览器本地（100% 离线安全）持久化存储用户的 AI API 密钥、首选大模型名称、接口请求 URL 等配置，以及临时保存当前标签页的对话历史。<br>**English:** Used to securely save user API configurations (providers, keys, base URLs) and persist tab chat history locally on the user's device using `chrome.storage.local`. |
+| `storage` | permissions | **中文：** 用于本地保存 API 配置、对话历史、随机安装标识及待重试的匿名使用事件。<br>**English:** Used to securely save user API configurations (providers, keys, base URLs) and persist tab chat history locally on the user's device using `chrome.storage.local`. |
 | `contextMenus` | permissions | **中文：** 用于在网页右键菜单中增加“附加所选文本到 ContextLens”快捷项，允许用户在关闭悬浮窗或进行深度阅读时，通过右键快速拉起侧边栏并传送选中的文本。<br>**English:** Used to add a right-click context menu option ("附加所选文本到 ContextLens") so users can quickly send highlighted text and trigger the side panel helper. |
 | `tabs` | permissions | **中文：** 用于获取当前活动标签页的 URL 地址和网页标题。这些信息会在请求时作为参考传递给 AI 模型，便于 AI 结合来源网站提供准确、有深度且带引用链接的回答，并用于处理不同 Tab 页侧边栏状态的隔离与自动隐藏。<br>**English:** Used to read the active tab's URL and title to provide source web references to the AI models for context-rich analysis, and to manage strict tab-isolated sidebar states. |
 | `scripting` | permissions | **中文：** 当用户主动劾选"附加完整文章上下文"时，用于向当前活动网页中动态注入轻量级 HTML 语义解析脚本，提取网页核心正文并自动去除广告、导航等噪音，精简后提供给侧边栏内的 AI 进行长文或代码库背景分析。<br>**English:** Used to dynamically execute a lightweight HTML semantic parser on the active page to extract and denoise main article or codebase context only when the user explicitly requests full-page analysis. |
@@ -124,14 +124,12 @@ Productivity (生产力工具) 或 Developer Tools (开发者工具)
 ## 隐私与数据安全 (Privacy & Data Use)
 
 ### 数据收集声明 (Data Collection)
-*ContextLens 坚守完全本地化、无监控的原则。以下是应在 CWS 隐私表单中填写的选项：*
-
-* **是否收集个人或敏感数据？**：**否 (No)**
+插件上报安装、打开聊天窗口和发送聊天三个事件，以及本地随机生成的 UUID、事件 ID 和时间。该标识可关联同一次安装的使用行为；提交 CWS 时应按最新政策如实披露数据收集与用途。
 
 ### 隐私合规承诺 (Data Use Certification)
 在提交时，您必须勾选并确认以下三项政策承诺：
 - [x] **不转售数据**：本插件绝不将收集的数据或提取的信息出售给任何第三方。
-- [x] **单一目的使用**：本插件获取的一切数据（均在本地处理）仅用于提供 AI 网页上下文解读和智能对话这一核心功能，绝不挪作他用。
+- [x] **单一目的使用**：使用事件仅用于统计产品使用情况；聊天和网页内容按用户选择用于提供 AI 对话功能。
 - [x] **不进行信用评估或借贷**：绝不将收集的信息用于评估用户的信用记录、借贷资质或用于商业营销。
 
 ---
@@ -144,23 +142,24 @@ Productivity (生产力工具) 或 Developer Tools (开发者工具)
 ```markdown
 # ContextLens - 隐私政策 (Privacy Policy)
 
-**生效日期：2026年5月20日**
+**更新日期：2026年11月25日**
 
-ContextLens（以下简称“我们”或“本插件”）非常重视您的个人隐私。本隐私政策旨在向您说明本插件不收集、不存储、不传输任何超出核心功能所需的个人数据的承诺。
+ContextLens（以下简称“我们”或“本插件”）非常重视您的个人隐私。本隐私政策说明插件处理聊天数据和匿名使用统计的方式。
 
 ## 1. 我们收集的数据
-**我们坚决不收集任何您的敏感个人数据或隐私信息。** 
+**使用统计不包含聊天内容或网页内容。**
+- **使用统计**：插件向采集服务发送安装、打开聊天窗口和发送聊天事件，包含本地随机 UUID、事件 ID 和发生时间，用于统计使用量。UUID 按浏览器配置中的一次安装区分，卸载重装或清除扩展数据后会变化。服务提供商可能处理 IP 地址等网络连接信息。
 - **个人身份信息**：本插件不需要您注册账户，因此不收集您的姓名、电子邮箱、手机号等任何个人身份信息。
-- **浏览历史与网页数据**：本插件绝不记录您的浏览历史、访问过的网址或网页数据。我们只在您**主动划选网页文本**并**触发 AI 问答**时，才会将您选中的文本在浏览器本地提取并展现。
+- **浏览历史与网页数据**：插件在本地处理当前网页的选中内容及上下文，并可在对话中按功能设置向您选择的 AI 服务发送相关网页内容、URL 和标题。这些内容不发送给使用统计服务。
 - **API 密钥与设置**：您在设置面板中填写的 Google Gemini、OpenAI、Claude 或自定义大模型的 API 密钥和自定义 URL，均属于您的私人机密数据。
 
 ## 2. 数据的存储方式
 - **100% 本地存储**：您的所有 API 密钥、自定义模型配置、以及在侧边栏内的对话历史记录，均通过 Chrome 的本地安全沙箱存储（`chrome.storage.local`）直接保存在您的个人电脑设备中。
-- **无中转服务器**：本插件没有建立任何云端中转服务器。这意味着，您的密钥和聊天记录绝不会被上传到除您指定的大模型官方接口之外的任何服务器上。
+- **聊天内容直连**：您的密钥和聊天记录不会上传到插件的统计服务，而是发送至您指定的大模型接口。
 
 ## 3. 数据的传输与共享
 - **直接发送给 AI 服务商**：当您在聊天框中提问时，您的对话内容、划选的网页上下文及 API 密钥将通过安全的 HTTPS 加密通道，**直接**发送给您在设置中选择的第三方 AI 服务商（例如 Google, OpenAI, Anthropic 等）的官方 API 端点。
-- **不共享给任何其他第三方**：除上述您主动选择的官方 AI API 服务商之外，我们绝不会以任何形式将您的数据出售、共享、出租或披露给任何组织或个人。
+- **使用统计服务**：上述匿名事件发送至采集服务并存储于 Supabase，用于使用量统计；不发送聊天内容、网页、API 密钥或模型配置。我们不出售使用数据。
 - **第三方隐私政策**：在向第三方 AI 服务商发送请求时，数据的使用和存储将受到这些服务商各自隐私政策的约束，建议您查阅相应服务商的官方隐私说明。
 
 ## 4. 权限使用说明
@@ -173,7 +172,7 @@ ContextLens（以下简称“我们”或“本插件”）非常重视您的个
 
 ## 5. 您的权利与控制
 - 您可以随时在侧边栏的“设置”中清空或更改 API 密钥。
-- 卸载本插件将立即且永久地删除保存在您本地设备中的所有配置、密钥及对话历史，无法恢复。
+- 卸载本插件将删除保存在本地的配置、密钥、对话历史和随机 UUID；已上报的事件不会因此自动删除。
 
 ## 6. 政策更新
 我们可能会根据插件功能的升级或浏览器平台政策的变化，不定期更新本隐私政策。任何更新都将在此页面公布。
@@ -197,4 +196,5 @@ ContextLens（以下简称“我们”或“本插件”）非常重视您的个
 
 | 版本号 | 发布日期 | 更新内容 | 审核状态 |
 | :--- | :--- | :--- | :--- |
+| **1.0.7** | 2026-11-25 | 增加安装、打开聊天窗口和发送聊天的匿名使用统计；不采集聊天内容、网页数据或 API 密钥。 | 待提交 |
 | **1.0.0** | 2026-05-22 | - 首次公开发布版本<br>- 支持划词自动展示 Lens 悬浮按钮及右键菜单拉起侧边栏<br>- 支持 Gemini API, OpenAI, Claude API 及自定义 / 本地大模型 (Ollama, LM Studio 等)<br>- 支持本地开发者 AI Agent (Claude Code, Codex Agent, Antigravity Agent 等)<br>- 支持本地模型智能同步：点击「🔄 Sync」一键拉取本地模型列表<br>- 支持附加完整网页正文、代码上下文及 URL 引用功能<br>- 支持 Ctrl + Enter 快捷发送，Enter 回车折行输入<br>- 支持请求进行中红色方块中断按钮（可立即停止）<br>- 支持 URL 自动切换规则弹窗新增 / 编辑<br>- 支持侧边栏中文 / English 双语切换<br>- 拥有精致的毛玻璃浅色设计界面<br>- 完全隐私本地化：数据不经任何中转服务器 | 🚨 准备提交审核 |

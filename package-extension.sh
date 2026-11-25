@@ -14,6 +14,9 @@ echo "📦 开始为 ContextLens (v$VERSION) 打包..."
 zip -r "$OUTPUT" . \
   -x ".git/*" \
   -x ".git" \
+  -x ".gitignore" \
+  -x "package.json" \
+  -x "package-lock.json" \
   -x "node_modules/*" \
   -x "node_modules" \
   -x "*.zip" \
@@ -31,6 +34,8 @@ zip -r "$OUTPUT" . \
   -x ".claude" \
   -x "bridge/*" \
   -x "bridge" \
+  -x "tests/*" \
+  -x "tests" \
   -x "implementation_plan.md" \
   -x "implementation_plan_zh.md" \
   -x ".DS_Store" \

@@ -192,6 +192,8 @@ All API endpoints use SSE streaming. Local agents also parse these event types:
 
 ## Security and Privacy
 
+- Anonymous usage statistics send only installation, chat-window opening, and chat-send events, a random local installation ID, event ID and time to the telemetry service. No chat content, page data, or API keys are included. The service provider may process network connection information such as IP addresses.
+
 - API keys are stored in `chrome.storage.local` only.
 - Bridge Server runs locally at `localhost:3100` and is not exposed publicly.
 - API requests are sent directly to model endpoints; ContextLens does not proxy your data through intermediate servers.
